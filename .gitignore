@@ -1,0 +1,48 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+scenarios/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.env/
+.venv/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+.spyderproject
+.spyproject
+
+# Local development settings
+.env
+.env.local
+
+# Streamlit specific
+.streamlit/secrets.toml
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# User-specific files
+last_session_inputs.json
+
+# Temporary matplotlib files
+.matplotlib/
