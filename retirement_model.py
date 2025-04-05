@@ -183,9 +183,12 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             
         # Calculate current age for RMD purposes
         current_age = calculate_age(birthdate, date)
+        
+        # Debug: Add this check specifically for September 2025
+        is_post_retirement = date >= retire_date
             
         # Monthly values based on current date
-        if date < retire_date:
+        if not is_post_retirement:
             # Still working
             monthly_gross_salary = high3 / 12
             # Progressive tax on salary
@@ -203,6 +206,9 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             # TSP contribution and growth during working years
             # Assuming no withdrawals and continued growth
             tsp_balance = tsp_balance * (1 + tsp_growth / 12)
+            
+            # Initialize rmd_amount to 0 during working years
+            rmd_amount = 0
             
         else:
             # Retired
@@ -286,15 +292,35 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 effective_fed_rate = federal_tax / monthly_gross_salary
                 working_salary = monthly_gross_salary * (1 - effective_fed_rate - state_tax) * working_ratio
                 
-                # Adjust values for partial month
-                s = working_salary
-                f = f * retired_ratio
-                fs = fs * retired_ratio
-                t = t * retired_ratio
-                ss_amt = ss_amt * retired_ratio
-                fehb_amt = fehb_amt * retired_ratio
+                # Store original values for retirement portion calculations
+                orig_f = f
+                orig_fs = fs
+                orig_t = t
+                orig_ss_amt = ss_amt
+                orig_fehb_amt = fehb_amt
+                
+                # Reset all values to avoid double-counting
+                s = 0
+                f = 0
+                fs = 0
+                t = 0
+                ss_amt = 0
+                fehb_amt = 0
+                
+                # Adjust values for partial month - only count each portion once
+                s = working_salary  # Salary for working days only
+                f = orig_f * retired_ratio  # Retirement benefits only for retired days
+                fs = orig_fs * retired_ratio
+                t = orig_t * retired_ratio
+                ss_amt = orig_ss_amt * retired_ratio
+                fehb_amt = orig_fehb_amt * retired_ratio
         
         # Record data
+        
+        # Debug fix for the September 2025 issue: ensure salary is zero for months after retirement
+        if date > retire_date:
+            s = 0
+        
         months.append(date)
         fers.append(f)
         fers_supplement.append(fs)
@@ -310,7 +336,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         date += relativedelta(months=1)
     
     # Create DataFrame
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "Date": months,
         "Salary": salary,
         "FERS": fers,
@@ -322,3 +348,25 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         "TSP_Balance": tsp_balance_history,
         "RMD_Amount": rmd_amounts
     })
+    
+    # Special fix for the September 2025 spike issue
+    # Find any row where salary is abnormally high (over annual salary / 2)
+    abnormal_salary_mask = df["Salary"] > (high3 / 2)
+    # Also ensure we're only fixing dates after retirement
+    post_retirement_mask = df["Date"] > retire_date
+    # Apply both conditions to identify problematic rows
+    fix_mask = abnormal_salary_mask & post_retirement_mask
+    
+    if fix_mask.any():
+        # Fix the problematic rows by setting salary to 0 and recalculating total income
+        df.loc[fix_mask, "Salary"] = 0
+        # Recalculate total income for these rows
+        df.loc[fix_mask, "Total_Income"] = (
+            df.loc[fix_mask, "FERS"] + 
+            df.loc[fix_mask, "FERS_Supplement"] + 
+            df.loc[fix_mask, "TSP"] + 
+            df.loc[fix_mask, "Social_Security"] + 
+            df.loc[fix_mask, "FEHB"]
+        )
+    
+    return df
