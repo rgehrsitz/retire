@@ -329,3 +329,191 @@ def plot_income_ratio(income_ratio, retire_date_a, retire_date_b):
     ax.grid(True)
     
     return fig
+
+def plot_tsp_balance(df, retire_date):
+    """Plot TSP balance over time"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(df["Date"], df["TSP_Balance"], label="TSP Balance", color="green")
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='r', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("TSP Balance Over Time")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Balance ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig
+
+def plot_rmd_vs_withdrawal(df, retire_date):
+    """Plot RMD vs actual withdrawal rate"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Calculate actual withdrawal amount
+    withdrawal = df["TSP"] / (1 - 0.22)  # Approximate pre-tax withdrawal
+    
+    ax.plot(df["Date"], df["RMD_Amount"], label="Required Minimum Distribution", 
+            color="red", linestyle="--")
+    ax.plot(df["Date"], withdrawal, label="Actual Withdrawal", color="blue")
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='green', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("RMD vs Actual TSP Withdrawal")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Monthly Amount ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig
+
+def plot_cash_flow(df, retire_date):
+    """Plot cash flow analysis with expenses"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Plot income and expenses
+    ax.plot(df["Date"], df["Total_Income"], label="Total Income", color="blue")
+    ax.plot(df["Date"], df["Monthly_Expenses"], label="Monthly Expenses", color="red")
+    ax.plot(df["Date"], df["Net_Cash_Flow"], label="Net Cash Flow", color="green")
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='purple', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("Monthly Cash Flow Analysis")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Amount ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig
+
+def plot_cumulative_cash_flow(df, retire_date):
+    """Plot cumulative cash flow over time"""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    
+    # Plot cumulative cash flow
+    ax.plot(df["Date"], df["Cumulative_Cash_Flow"], label="Cumulative Cash Flow", color="green")
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='r', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("Cumulative Cash Flow Over Time")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Cumulative Amount ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig
+
+def plot_stress_test_comparison(results, retire_date):
+    """Plot comparison of different market scenarios"""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Plot the different scenarios
+    ax.plot(
+        results["best_case"]["Date"], 
+        results["best_case"]["Total_Income"], 
+        label="Best Case", 
+        color="green"
+    )
+    ax.plot(
+        results["average_case"]["Date"], 
+        results["average_case"]["Total_Income"], 
+        label="Average Case", 
+        color="blue"
+    )
+    ax.plot(
+        results["worst_case"]["Date"], 
+        results["worst_case"]["Total_Income"], 
+        label="Worst Case", 
+        color="red"
+    )
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='purple', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("Income Under Different Market Scenarios")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Monthly Income ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig
+
+def plot_tsp_stress_test(results, retire_date):
+    """Plot TSP balance under different market scenarios"""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Plot the different scenarios
+    ax.plot(
+        results["best_case"]["Date"], 
+        results["best_case"]["TSP_Balance"], 
+        label="Best Case", 
+        color="green"
+    )
+    ax.plot(
+        results["average_case"]["Date"], 
+        results["average_case"]["TSP_Balance"], 
+        label="Average Case", 
+        color="blue"
+    )
+    ax.plot(
+        results["worst_case"]["Date"], 
+        results["worst_case"]["TSP_Balance"], 
+        label="Worst Case", 
+        color="red"
+    )
+    
+    # Add retirement date line
+    ax.axvline(x=retire_date, color='purple', linestyle='--', label="Retirement")
+    
+    # Format plot
+    ax.set_title("TSP Balance Under Different Market Scenarios")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("TSP Balance ($)")
+    ax.legend()
+    ax.grid(True)
+    
+    # Set better date formatting
+    years = mdates.YearLocator(5)   # every 5 years
+    years_fmt = mdates.DateFormatter('%Y')
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+    
+    return fig

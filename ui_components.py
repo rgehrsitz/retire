@@ -20,7 +20,17 @@ from plots import (
     plot_household_income,
     plot_combined_sources,
     plot_cumulative_household,
-    plot_income_ratio
+    plot_income_ratio,
+    plot_tsp_balance,
+    plot_rmd_vs_withdrawal,
+    plot_cash_flow,
+    plot_cumulative_cash_flow,
+    plot_stress_test_comparison,
+    plot_tsp_stress_test
+)
+from analysis_utils import (
+    calculate_expenses,
+    calculate_cash_flow
 )
 
 def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_TSP_GROWTH, DEFAULT_TSP_WITHDRAW):
@@ -286,6 +296,41 @@ def render_export_options(df_a, df_b, to_excel_func):
             mime="application/vnd.ms-excel"
         )
 
+def render_expense_inputs():
+    """Render inputs for expense modeling"""
+    st.subheader("Monthly Expense Modeling")
+    
+    enable_expenses = st.checkbox("Enable Expense Modeling", value=False)
+    
+    expenses = {}
+    if enable_expenses:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            expenses["pre_retirement"] = st.number_input(
+                "Pre-Retirement Monthly Expenses ($)",
+                value=8000,
+                step=100
+            )
+        
+        with col2:
+            expenses["post_retirement"] = st.number_input(
+                "Post-Retirement Monthly Expenses ($)",
+                value=7000,
+                step=100
+            )
+        
+        expenses["expense_inflation"] = st.slider(
+            "Annual Expense Inflation (%)",
+            min_value=0.01,
+            max_value=0.05,
+            value=0.025,
+            step=0.001,
+            format="%.3f"
+        )
+    
+    return enable_expenses, expenses if enable_expenses else None
+
 def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss_date_b):
     """Render the household combined income tab"""
     st.header("👨‍👩‍👧‍👦 Household Combined Income")
@@ -301,6 +346,56 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
         df_a["Date"], combined_income, retire_date_a, retire_date_b, ss_date_a, ss_date_b
     )
     st.pyplot(fig_household)
+    
+    # Add Expense Modeling
+    enable_expenses, expenses_config = render_expense_inputs()
+    
+    if enable_expenses:
+        # Calculate expenses for the household
+        expense_list = calculate_expenses(
+            df_a["Date"], 
+            min(retire_date_a, retire_date_b),  # Use earlier retirement date
+            expenses_config["pre_retirement"],
+            expenses_config["post_retirement"],
+            expenses_config["expense_inflation"]
+        )
+        
+        # Add expenses to dataframe and calculate cash flow
+        combined_df = pd.DataFrame({
+            "Date": df_a["Date"],
+            "Total_Income": combined_income,
+            "Cumulative_Income": combined_cumulative
+        })
+        
+        combined_df = calculate_cash_flow(combined_df, expense_list)
+        
+        # Show cash flow plots
+        st.subheader("💰 Cash Flow Analysis")
+        
+        fig_cashflow = plot_cash_flow(combined_df, min(retire_date_a, retire_date_b))
+        st.pyplot(fig_cashflow)
+        
+        fig_cumulative = plot_cumulative_cash_flow(combined_df, min(retire_date_a, retire_date_b))
+        st.pyplot(fig_cumulative)
+        
+        # Key cash flow metrics
+        st.subheader("Cash Flow Metrics")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            avg_net = combined_df["Net_Cash_Flow"].mean()
+            st.metric("Average Monthly Net Cash Flow", f"${avg_net:,.2f}")
+        
+        with col2:
+            final_balance = combined_df["Cumulative_Cash_Flow"].iloc[-1]
+            st.metric("End Balance", f"${final_balance:,.2f}")
+        
+        with col3:
+            negative_months = (combined_df["Net_Cash_Flow"] < 0).sum()
+            total_months = len(combined_df)
+            negative_pct = (negative_months / total_months) * 100
+            st.metric("Months with Negative Cash Flow", f"{negative_months} ({negative_pct:.1f}%)")
     
     # Stacked Income Sources (Combined Household)
     st.subheader("💵 Combined Income Sources")
@@ -320,6 +415,23 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
         combined_sources, retire_date_a, retire_date_b
     )
     st.pyplot(fig_combined)
+    
+    # TSP Analysis
+    st.subheader("📊 Combined TSP Analysis")
+    
+    # Combined TSP Balance
+    combined_tsp = pd.DataFrame({
+        "Date": df_a["Date"],
+        "TSP_Balance": df_a["TSP_Balance"] + df_b["TSP_Balance"],
+        "RMD_Amount": df_a["RMD_Amount"] + df_b["RMD_Amount"],
+        "TSP": df_a["TSP"] + df_b["TSP"]
+    })
+    
+    fig_tsp_balance = plot_tsp_balance(combined_tsp, min(retire_date_a, retire_date_b))
+    st.pyplot(fig_tsp_balance)
+    
+    fig_rmd = plot_rmd_vs_withdrawal(combined_tsp, min(retire_date_a, retire_date_b))
+    st.pyplot(fig_rmd)
     
     # Cumulative Household Income
     st.subheader("📈 Cumulative Household Income")

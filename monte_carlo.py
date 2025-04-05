@@ -144,3 +144,142 @@ def calculate_risk_metrics(mc_results, starting_income):
         "Income Volatility ($)": volatility,
         "Risk of Significant Income Drop (>20%) (%)": significant_drop
     }
+
+def run_stress_tests(
+    birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+    ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw, 
+    pa_resident, fehb_premium, filing_status="single"
+):
+    """Run stress tests with different market scenarios"""
+    
+    results = {}
+    
+    # Best case scenario
+    results["best_case"] = simulate_retirement(
+        birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+        ss_start_age, survivor_option, cola_mean + 0.005, tsp_growth_mean + 0.03, tsp_withdraw,
+        pa_resident, fehb_premium, filing_status
+    )
+    
+    # Average case scenario (baseline)
+    results["average_case"] = simulate_retirement(
+        birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+        ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
+        pa_resident, fehb_premium, filing_status
+    )
+    
+    # Worst case scenario
+    results["worst_case"] = simulate_retirement(
+        birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+        ss_start_age, survivor_option, cola_mean - 0.005, tsp_growth_mean - 0.03, tsp_withdraw,
+        pa_resident, fehb_premium, filing_status
+    )
+    
+    return results
+
+def calculate_tsp_depletion_risk(mc_results, tsp_threshold=1000):
+    """Calculate risk of TSP balance falling below threshold"""
+    below_threshold_count = sum(1 for sim in mc_results if min(sim["TSP_Balance"]) < tsp_threshold)
+    depletion_risk = below_threshold_count / len(mc_results) * 100
+    return depletion_risk
+
+def run_monte_carlo_with_tsp_tracking(
+    birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+    ss_start_age, survivor_option, cola_mean, cola_std, tsp_growth_mean, tsp_growth_std, 
+    tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
+    num_simulations=100
+):
+    """Run Monte Carlo simulations with TSP balance tracking"""
+    # Store full simulation results to track TSP balances
+    simulations = []
+    
+    # Run simulations
+    for i in range(num_simulations):
+        # Sample growth and COLA rates from normal distributions
+        cola = np.random.normal(cola_mean, cola_std)
+        cola = max(0, cola)  # Ensure non-negative COLA
+        
+        tsp_growth = np.random.normal(tsp_growth_mean, tsp_growth_std)
+        
+        # Run simulation with sampled parameters
+        sim_df = simulate_retirement(
+            birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+            ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
+            pa_resident, fehb_premium, filing_status
+        )
+        
+        # Store full simulation result
+        simulations.append(sim_df)
+    
+    return simulations
+
+def run_sensitivity_analysis(
+    birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+    ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw, 
+    pa_resident, fehb_premium, filing_status="single",
+    parameter_ranges=None
+):
+    """Run sensitivity analysis by varying one parameter at a time"""
+    if parameter_ranges is None:
+        # Default parameter ranges to analyze
+        parameter_ranges = {
+            "cola": [cola_mean - 0.01, cola_mean, cola_mean + 0.01],
+            "tsp_growth": [tsp_growth_mean - 0.02, tsp_growth_mean, tsp_growth_mean + 0.02],
+            "tsp_withdraw": [tsp_withdraw * 0.75, tsp_withdraw, tsp_withdraw * 1.25],
+            "retire_delay_years": [0, 1, 2]
+        }
+    
+    results = {
+        "cola": {},
+        "tsp_growth": {},
+        "tsp_withdraw": {},
+        "retire_delay_years": {}
+    }
+    
+    # Base case simulation
+    base_case = simulate_retirement(
+        birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+        ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
+        pa_resident, fehb_premium, filing_status
+    )
+    
+    results["base_case"] = base_case
+    
+    # Test COLA variations
+    for cola in parameter_ranges["cola"]:
+        sim_df = simulate_retirement(
+            birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+            ss_start_age, survivor_option, cola, tsp_growth_mean, tsp_withdraw,
+            pa_resident, fehb_premium, filing_status
+        )
+        results["cola"][cola] = sim_df
+    
+    # Test TSP growth variations
+    for growth in parameter_ranges["tsp_growth"]:
+        sim_df = simulate_retirement(
+            birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+            ss_start_age, survivor_option, cola_mean, growth, tsp_withdraw,
+            pa_resident, fehb_premium, filing_status
+        )
+        results["tsp_growth"][growth] = sim_df
+    
+    # Test TSP withdrawal rate variations
+    for withdraw in parameter_ranges["tsp_withdraw"]:
+        sim_df = simulate_retirement(
+            birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+            ss_start_age, survivor_option, cola_mean, tsp_growth_mean, withdraw,
+            pa_resident, fehb_premium, filing_status
+        )
+        results["tsp_withdraw"][withdraw] = sim_df
+    
+    # Test retirement date variations
+    for years in parameter_ranges["retire_delay_years"]:
+        delayed_retire_date = retire_date + relativedelta(years=years)
+        sim_df = simulate_retirement(
+            birthdate, start_date, delayed_retire_date, high3, tsp_start, sick_leave_hours,
+            ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
+            pa_resident, fehb_premium, filing_status
+        )
+        results["retire_delay_years"][years] = sim_df
+    
+    return results

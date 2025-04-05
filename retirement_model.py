@@ -2,6 +2,7 @@ import datetime as dt
 from dateutil.relativedelta import relativedelta
 import pandas as pd
 import numpy as np
+from analysis_utils import calculate_rmd
 
 def calculate_age(birthdate, target_date):
     """Calculate age at a specific date"""
@@ -131,6 +132,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     salary = []
     fehb = []
     total = []
+    tsp_balance_history = []
+    rmd_amounts = []
     
     # Convert sick leave hours to months for service credit
     sick_leave_months = sick_leave_hours / 174  # 174 hours = 1 month of service credit
@@ -167,6 +170,9 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     start_year = min(today.year, retire_date.year)
     sim_start = dt.date(start_year, 1, 1)
     
+    # Calculate month of retirement for partial year handling
+    retirement_month = retire_date.month
+    
     # Run simulation for 40 years (monthly)
     date = sim_start
     for _ in range(40 * 12):
@@ -193,6 +199,11 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             t = 0
             ss_amt = 0
             fehb_amt = 0
+            
+            # TSP contribution and growth during working years
+            # Assuming no withdrawals and continued growth
+            tsp_balance = tsp_balance * (1 + tsp_growth / 12)
+            
         else:
             # Retired
             s = 0
@@ -216,7 +227,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 fs = 0
             
             # Check for RMD requirements
-            rmd_amount = calculate_monthly_rmd(current_age, tsp_balance)
+            rmd_amount = calculate_rmd(current_age, tsp_balance)
             withdrawal_rate = max(tsp_withdraw / 12, rmd_amount / tsp_balance if tsp_balance > 0 else 0)
             
             # TSP withdrawals and growth
@@ -256,6 +267,33 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             # FEHB premium in retirement
             fehb_amt = -fehb_premium
         
+        # Special handling for mid-year retirement
+        if date.year == retire_date.year:
+            if date.month == retirement_month:
+                # Retirement month - prorate based on day of month
+                days_in_month = (dt.date(date.year, date.month, 28) + relativedelta(days=4)).day
+                working_days = retire_date.day - 1
+                retired_days = days_in_month - working_days
+                
+                # Blend working and retired values
+                working_ratio = working_days / days_in_month
+                retired_ratio = retired_days / days_in_month
+                
+                # Calculate working part of month
+                monthly_gross_salary = high3 / 12
+                annual_salary = high3
+                federal_tax = calculate_federal_tax(annual_salary, filing_status) / 12
+                effective_fed_rate = federal_tax / monthly_gross_salary
+                working_salary = monthly_gross_salary * (1 - effective_fed_rate - state_tax) * working_ratio
+                
+                # Adjust values for partial month
+                s = working_salary
+                f = f * retired_ratio
+                fs = fs * retired_ratio
+                t = t * retired_ratio
+                ss_amt = ss_amt * retired_ratio
+                fehb_amt = fehb_amt * retired_ratio
+        
         # Record data
         months.append(date)
         fers.append(f)
@@ -265,6 +303,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         salary.append(s)
         fehb.append(fehb_amt)
         total.append(f + fs + t + ss_amt + s + fehb_amt)
+        tsp_balance_history.append(tsp_balance)
+        rmd_amounts.append(rmd_amount)
         
         # Advance to next month
         date += relativedelta(months=1)
@@ -278,5 +318,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         "TSP": tsp,
         "Social_Security": ss,
         "FEHB": fehb,
-        "Total_Income": total
+        "Total_Income": total,
+        "TSP_Balance": tsp_balance_history,
+        "RMD_Amount": rmd_amounts
     })
