@@ -139,24 +139,26 @@ with tab1:
     if breakeven_summary:
         st.success(breakeven_summary)
     
-    # Create charts
+    # Create charts with Plotly
     fig1 = plot_monthly_income(df_a, df_b, 
                               scenario_a["retire_date"], scenario_b["retire_date"], 
-                              ss_date_a, ss_date_b)
-    st.pyplot(fig1)
+                              ss_date_a, ss_date_b, use_plotly=True)
+    st.plotly_chart(fig1, use_container_width=True)
     
     # Monthly Income Delta
     st.subheader("📊 Monthly Income Delta (Scenario B - Scenario A)")
     fig2 = plot_monthly_delta(delta_df, 
-                             scenario_a["retire_date"], scenario_b["retire_date"])
-    st.pyplot(fig2)
+                             scenario_a["retire_date"], scenario_b["retire_date"], 
+                             use_plotly=True)
+    st.plotly_chart(fig2, use_container_width=True)
     
     # Cumulative Income
     st.subheader("📈 Cumulative Income Comparison")
     fig3 = plot_cumulative_income(df_a, df_b, 
                                  scenario_a["retire_date"], scenario_b["retire_date"], 
-                                 breakeven_date, breakeven_value, breakeven_idx)
-    st.pyplot(fig3)
+                                 breakeven_date, breakeven_value, breakeven_idx,
+                                 use_plotly=True)
+    st.plotly_chart(fig3, use_container_width=True)
     
     # Income Source Breakdown (Stacked Area Charts)
     st.subheader("💰 Income Source Breakdown")
@@ -173,8 +175,8 @@ with tab1:
         retire_date = scenario_b["retire_date"]
         ss_date = ss_date_b
     
-    fig4 = plot_income_sources(df_stacked, retire_date, ss_date, scenario_choice)
-    st.pyplot(fig4)
+    fig4 = plot_income_sources(df_stacked, retire_date, ss_date, scenario_choice, use_plotly=True)
+    st.plotly_chart(fig4, use_container_width=True)
     
     # Export Options
     st.subheader("📋 Export Data")
@@ -267,8 +269,16 @@ with tab3:
     # Run simulation button
     if st.button("Run Monte Carlo Simulation"):
         with st.spinner("Running simulations..."):
+            # Create a modified scenario dictionary without cola and tsp_growth to avoid parameter conflicts
+            mc_scenario = scenario.copy()
+            # Remove parameters that would conflict with explicit parameters
+            if "cola" in mc_scenario:
+                del mc_scenario["cola"]  # Remove cola to avoid conflict with cola_mean
+            if "tsp_growth" in mc_scenario:
+                del mc_scenario["tsp_growth"]  # Remove tsp_growth to avoid conflict with tsp_growth_mean
+                
             mc_results = run_monte_carlo_simulation(
-                **scenario,
+                **mc_scenario,
                 cola_mean=cola_mean,
                 cola_std=cola_std,
                 tsp_growth_mean=tsp_growth_mean,
@@ -285,6 +295,9 @@ with tab3:
                 
                 fig = go.Figure()
                 
+                # Clean the index to ensure there are no NaN values
+                clean_results = mc_results.dropna(axis=0, how='any')
+                
                 # Add percentile lines
                 for percentile, color in [(5, "rgba(231,107,243,0.2)"), 
                                          (25, "rgba(231,107,243,0.3)"),
@@ -292,8 +305,8 @@ with tab3:
                                          (75, "rgba(231,107,243,0.3)"),
                                          (95, "rgba(231,107,243,0.2)")]:
                     fig.add_trace(go.Scatter(
-                        x=mc_results.index,
-                        y=mc_results[f"p{percentile}"],
+                        x=clean_results.index,
+                        y=clean_results[f"p{percentile}"],
                         mode='lines',
                         line=dict(color=color, width=2 if percentile == 50 else 1),
                         name=f"{percentile}th Percentile"
@@ -315,10 +328,13 @@ with tab3:
                 
                 fig, ax = plt.subplots(figsize=(10, 6))
                 
+                # Clean the index to ensure there are no NaN values
+                clean_results = mc_results.dropna(axis=0, how='any')
+                
                 # Plot percentile lines
                 for percentile, alpha in [(5, 0.2), (25, 0.4), (50, 1.0), (75, 0.4), (95, 0.2)]:
-                    ax.plot(mc_results.index, 
-                            mc_results[f"p{percentile}"], 
+                    ax.plot(clean_results.index, 
+                            clean_results[f"p{percentile}"], 
                             alpha=alpha,
                             linewidth=2 if percentile == 50 else 1,
                             label=f"{percentile}th Percentile")
@@ -335,38 +351,48 @@ with tab3:
             # Summary statistics
             st.subheader("Key Insights")
             
+            # Find retirement month index (might be different than before with variable simulation length)
+            # We'll use index 12 as a proxy for about a year into retirement if we have enough data points
+            start_idx = min(12, len(clean_results) - 1)
+            # For 10 years after retirement - use available data or max
+            ten_year_idx = min(120, len(clean_results) - 1)
+            
             col1, col2 = st.columns(2)
             
             with col1:
                 st.metric(
                     "Median Monthly Income at Retirement", 
-                    f"${mc_results['p50'].iloc[12]:,.2f}"
+                    f"${clean_results['p50'].iloc[start_idx]:,.2f}"
                 )
                 
+                retirement_income = clean_results['p50'].iloc[start_idx]
+                ten_year_income = clean_results['p50'].iloc[ten_year_idx]
+                percentage_change = ((ten_year_income - retirement_income) / retirement_income) * 100
+                
                 st.metric(
-                    "Income Range (10 years after retirement)",
-                    f"${mc_results['p50'].iloc[120]:,.2f}",
-                    f"{(mc_results['p50'].iloc[120] - mc_results['p50'].iloc[12]) / mc_results['p50'].iloc[12] * 100:.1f}%"
+                    f"Income ({ten_year_idx//12} years after retirement)",
+                    f"${ten_year_income:,.2f}",
+                    f"{percentage_change:.1f}%"
                 )
             
             with col2:
                 st.metric(
                     "Worst Case (5th percentile)",
-                    f"${mc_results['p5'].iloc[120]:,.2f}",
-                    f"{(mc_results['p5'].iloc[120] - mc_results['p50'].iloc[12]) / mc_results['p50'].iloc[12] * 100:.1f}%"
+                    f"${clean_results['p5'].iloc[ten_year_idx]:,.2f}",
+                    f"{(clean_results['p5'].iloc[ten_year_idx] - retirement_income) / retirement_income * 100:.1f}%"
                 )
                 
                 st.metric(
                     "Best Case (95th percentile)",
-                    f"${mc_results['p95'].iloc[120]:,.2f}", 
-                    f"{(mc_results['p95'].iloc[120] - mc_results['p50'].iloc[12]) / mc_results['p50'].iloc[12] * 100:.1f}%"
+                    f"${clean_results['p95'].iloc[ten_year_idx]:,.2f}", 
+                    f"{(clean_results['p95'].iloc[ten_year_idx] - retirement_income) / retirement_income * 100:.1f}%"
                 )
             
             # Risk assessment
             st.markdown("### Risk Assessment")
             
-            risk_threshold = mc_results['p50'].iloc[12] * 0.8  # 80% of starting income
-            months_below_threshold = (mc_results['p25'] < risk_threshold).sum()
+            risk_threshold = clean_results['p50'].iloc[start_idx] * 0.8  # 80% of starting income
+            months_below_threshold = (clean_results['p25'] < risk_threshold).sum()
             
             if months_below_threshold > 0:
                 st.warning(f"There is a 25% chance your income could fall below 80% of your starting retirement income for {months_below_threshold} months.")

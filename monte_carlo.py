@@ -8,7 +8,7 @@ def run_monte_carlo_simulation(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, cola_std, tsp_growth_mean, tsp_growth_std, 
     tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
-    num_simulations=100
+    num_simulations=100, sim_years=25
 ):
     """
     Run Monte Carlo simulation for retirement planning
@@ -20,6 +20,7 @@ def run_monte_carlo_simulation(
     - tsp_growth_mean: Mean annual TSP growth rate (e.g., 0.05 for 5%)
     - tsp_growth_std: Standard deviation for TSP growth (e.g., 0.10 for 10%)
     - num_simulations: Number of simulation runs (default: 100)
+    - sim_years: Number of years to simulate after retirement (default: 25)
     
     Returns:
     - DataFrame with retirement dates as index and percentile columns for each month
@@ -28,7 +29,7 @@ def run_monte_carlo_simulation(
     first_sim = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status
+        pa_resident, fehb_premium, filing_status, sim_years
     )
     
     # Create dates index
@@ -49,7 +50,7 @@ def run_monte_carlo_simulation(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status, sim_years
         )
         
         # Store total income in results matrix
@@ -187,7 +188,7 @@ def run_monte_carlo_with_tsp_tracking(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, cola_std, tsp_growth_mean, tsp_growth_std, 
     tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
-    num_simulations=100
+    num_simulations=100, sim_years=25
 ):
     """Run Monte Carlo simulations with TSP balance tracking"""
     # Store full simulation results to track TSP balances
@@ -205,7 +206,7 @@ def run_monte_carlo_with_tsp_tracking(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status, sim_years
         )
         
         # Store full simulation result

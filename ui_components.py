@@ -337,15 +337,24 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
     
     st.write("This view shows the combined household income when both people are modeled together.")
     
-    # Create combined income streams
-    combined_income = df_a["Total_Income"] + df_b["Total_Income"]
+    # Find common dates between the two dataframes
+    common_dates = pd.Series(list(set(df_a["Date"]).intersection(set(df_b["Date"]))))
+    common_dates = common_dates.sort_values().reset_index(drop=True)
+    
+    # Create aligned dataframes
+    df_a_aligned = df_a.loc[df_a["Date"].isin(common_dates)].reset_index(drop=True)
+    df_b_aligned = df_b.loc[df_b["Date"].isin(common_dates)].reset_index(drop=True)
+    
+    # Create combined income streams with clean data
+    combined_income = df_a_aligned["Total_Income"] + df_b_aligned["Total_Income"]
     combined_cumulative = combined_income.cumsum()
     
     # Combined Monthly Income
     fig_household = plot_household_income(
-        df_a["Date"], combined_income, retire_date_a, retire_date_b, ss_date_a, ss_date_b
+        common_dates, combined_income, retire_date_a, retire_date_b, ss_date_a, ss_date_b,
+        use_plotly=True
     )
-    st.pyplot(fig_household)
+    st.plotly_chart(fig_household, use_container_width=True)
     
     # Add Expense Modeling
     enable_expenses, expenses_config = render_expense_inputs()
@@ -353,7 +362,7 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
     if enable_expenses:
         # Calculate expenses for the household
         expense_list = calculate_expenses(
-            df_a["Date"], 
+            common_dates, 
             min(retire_date_a, retire_date_b),  # Use earlier retirement date
             expenses_config["pre_retirement"],
             expenses_config["post_retirement"],
@@ -362,7 +371,7 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
         
         # Add expenses to dataframe and calculate cash flow
         combined_df = pd.DataFrame({
-            "Date": df_a["Date"],
+            "Date": common_dates,
             "Total_Income": combined_income,
             "Cumulative_Income": combined_cumulative
         })
@@ -372,11 +381,11 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
         # Show cash flow plots
         st.subheader("💰 Cash Flow Analysis")
         
-        fig_cashflow = plot_cash_flow(combined_df, min(retire_date_a, retire_date_b))
-        st.pyplot(fig_cashflow)
+        fig_cashflow = plot_cash_flow(combined_df, min(retire_date_a, retire_date_b), use_plotly=True)
+        st.plotly_chart(fig_cashflow, use_container_width=True)
         
-        fig_cumulative = plot_cumulative_cash_flow(combined_df, min(retire_date_a, retire_date_b))
-        st.pyplot(fig_cumulative)
+        fig_cumulative = plot_cumulative_cash_flow(combined_df, min(retire_date_a, retire_date_b), use_plotly=True)
+        st.plotly_chart(fig_cumulative, use_container_width=True)
         
         # Key cash flow metrics
         st.subheader("Cash Flow Metrics")
@@ -400,66 +409,66 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
     # Stacked Income Sources (Combined Household)
     st.subheader("💵 Combined Income Sources")
     
-    # Create combined sources dataframe
+    # Create combined sources dataframe with clean data
     combined_sources = pd.DataFrame({
-        "Date": df_a["Date"],
-        "Salary": df_a["Salary"] + df_b["Salary"],
-        "FERS": df_a["FERS"] + df_b["FERS"],
-        "FERS_Supplement": df_a["FERS_Supplement"] + df_b["FERS_Supplement"],
-        "TSP": df_a["TSP"] + df_b["TSP"],
-        "Social_Security": df_a["Social_Security"] + df_b["Social_Security"],
-        "FEHB": df_a["FEHB"] + df_b["FEHB"]
+        "Date": common_dates,
+        "Salary": df_a_aligned["Salary"] + df_b_aligned["Salary"],
+        "FERS": df_a_aligned["FERS"] + df_b_aligned["FERS"],
+        "FERS_Supplement": df_a_aligned["FERS_Supplement"] + df_b_aligned["FERS_Supplement"],
+        "TSP": df_a_aligned["TSP"] + df_b_aligned["TSP"],
+        "Social_Security": df_a_aligned["Social_Security"] + df_b_aligned["Social_Security"],
+        "FEHB": df_a_aligned["FEHB"] + df_b_aligned["FEHB"]
     })
     
     fig_combined = plot_combined_sources(
-        combined_sources, retire_date_a, retire_date_b
+        combined_sources, retire_date_a, retire_date_b, use_plotly=True
     )
-    st.pyplot(fig_combined)
+    st.plotly_chart(fig_combined, use_container_width=True)
     
     # TSP Analysis
     st.subheader("📊 Combined TSP Analysis")
     
     # Combined TSP Balance
     combined_tsp = pd.DataFrame({
-        "Date": df_a["Date"],
-        "TSP_Balance": df_a["TSP_Balance"] + df_b["TSP_Balance"],
-        "RMD_Amount": df_a["RMD_Amount"] + df_b["RMD_Amount"],
-        "TSP": df_a["TSP"] + df_b["TSP"]
+        "Date": common_dates,
+        "TSP_Balance": df_a_aligned["TSP_Balance"] + df_b_aligned["TSP_Balance"],
+        "RMD_Amount": df_a_aligned["RMD_Amount"] + df_b_aligned["RMD_Amount"],
+        "TSP": df_a_aligned["TSP"] + df_b_aligned["TSP"]
     })
     
-    fig_tsp_balance = plot_tsp_balance(combined_tsp, min(retire_date_a, retire_date_b))
-    st.pyplot(fig_tsp_balance)
+    fig_tsp_balance = plot_tsp_balance(combined_tsp, min(retire_date_a, retire_date_b), use_plotly=True)
+    st.plotly_chart(fig_tsp_balance, use_container_width=True)
     
-    fig_rmd = plot_rmd_vs_withdrawal(combined_tsp, min(retire_date_a, retire_date_b))
-    st.pyplot(fig_rmd)
+    fig_rmd = plot_rmd_vs_withdrawal(combined_tsp, min(retire_date_a, retire_date_b), use_plotly=True)
+    st.plotly_chart(fig_rmd, use_container_width=True)
     
     # Cumulative Household Income
     st.subheader("📈 Cumulative Household Income")
     
     fig_cum = plot_cumulative_household(
-        df_a["Date"], combined_cumulative, retire_date_a, retire_date_b
+        common_dates, combined_cumulative, retire_date_a, retire_date_b, use_plotly=True
     )
-    st.pyplot(fig_cum)
+    st.plotly_chart(fig_cum, use_container_width=True)
     
     # Income Ratio Analysis
     st.subheader("📊 Income Ratio Analysis")
     
     # Calculate income ratios
     income_ratio = pd.DataFrame({
-        "Date": df_a["Date"],
-        "Fixed_Income_Ratio": (df_a["FERS"] + df_b["FERS"] + df_a["FERS_Supplement"] + df_b["FERS_Supplement"] + 
-                              df_a["Social_Security"] + df_b["Social_Security"]) / 
-                             (df_a["Total_Income"] + df_b["Total_Income"]),
-        "Variable_Income_Ratio": (df_a["TSP"] + df_b["TSP"]) / (df_a["Total_Income"] + df_b["Total_Income"])
+        "Date": common_dates,
+        "Fixed_Income_Ratio": (df_a_aligned["FERS"] + df_b_aligned["FERS"] + df_a_aligned["FERS_Supplement"] + df_b_aligned["FERS_Supplement"] + 
+                              df_a_aligned["Social_Security"] + df_b_aligned["Social_Security"]) / 
+                             (df_a_aligned["Total_Income"] + df_b_aligned["Total_Income"]),
+        "Variable_Income_Ratio": (df_a_aligned["TSP"] + df_b_aligned["TSP"]) / (df_a_aligned["Total_Income"] + df_b_aligned["Total_Income"])
     })
     
     # Replace NaN and inf values
     income_ratio = income_ratio.replace([np.inf, -np.inf], np.nan).fillna(0)
     
     fig_ratio = plot_income_ratio(
-        income_ratio, retire_date_a, retire_date_b
+        income_ratio, retire_date_a, retire_date_b, use_plotly=True
     )
-    st.pyplot(fig_ratio)
+    st.plotly_chart(fig_ratio, use_container_width=True)
     
     # Key metrics about the household
     st.subheader("📊 Household Financial Metrics")
@@ -471,18 +480,28 @@ def render_household_tab(df_a, df_b, retire_date_a, retire_date_b, ss_date_a, ss
         st.metric("Peak Monthly Income", f"${peak_income:,.2f}")
         
     with col2:
-        avg_retired_income = combined_income[
-            (df_a["Date"] > retire_date_a) & 
-            (df_a["Date"] > retire_date_b)
-        ].mean()
-        st.metric("Average Retired Income", f"${avg_retired_income:,.2f}")
+        # Find data points after both retirement dates
+        post_retirement_mask = (common_dates > retire_date_a) & (common_dates > retire_date_b)
+        if post_retirement_mask.any():
+            avg_retired_income = combined_income[post_retirement_mask].mean()
+            st.metric("Average Retired Income", f"${avg_retired_income:,.2f}")
+        else:
+            st.metric("Average Retired Income", "N/A - not yet retired")
         
     with col3:
-        fixed_income_pct = ((df_a["FERS"] + df_b["FERS"] + 
-                            df_a["FERS_Supplement"] + df_b["FERS_Supplement"] + 
-                            df_a["Social_Security"] + df_b["Social_Security"]) /
-                           (df_a["Total_Income"] + df_b["Total_Income"])).mean() * 100
-        st.metric("Average Fixed Income %", f"{fixed_income_pct:.1f}%")
+        # Calculate fixed income percentage safely
+        total_income = df_a_aligned["Total_Income"] + df_b_aligned["Total_Income"]
+        fixed_income = (df_a_aligned["FERS"] + df_b_aligned["FERS"] + 
+                        df_a_aligned["FERS_Supplement"] + df_b_aligned["FERS_Supplement"] + 
+                        df_a_aligned["Social_Security"] + df_b_aligned["Social_Security"])
+        
+        # Avoid division by zero
+        fixed_income_pct = fixed_income[total_income > 0] / total_income[total_income > 0]
+        if len(fixed_income_pct) > 0:
+            avg_fixed_pct = fixed_income_pct.mean() * 100
+            st.metric("Average Fixed Income %", f"{avg_fixed_pct:.1f}%")
+        else:
+            st.metric("Average Fixed Income %", "N/A - no income data")
 
 def render_settings_tab():
     """Render the settings tab"""

@@ -119,9 +119,26 @@ def calculate_monthly_rmd(age, balance):
 
 def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
                         ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
-                        pa_resident, fehb_premium, filing_status="single"):
+                        pa_resident, fehb_premium, filing_status="single", sim_years=25):
     """
     Simulate retirement income streams on a monthly basis
+    
+    Parameters:
+        birthdate: Date of birth
+        start_date: Service start date
+        retire_date: Retirement date
+        high3: High-3 salary
+        tsp_start: Starting TSP balance
+        sick_leave_hours: Sick leave hours for service credit
+        ss_start_age: Age to begin Social Security
+        survivor_option: Survivor benefit option ("None", "Partial", or "Full")
+        cola: Annual COLA percentage (e.g., 0.02 for 2%)
+        tsp_growth: Annual TSP growth percentage (e.g., 0.05 for 5%)
+        tsp_withdraw: Annual TSP withdrawal rate (e.g., 0.04 for 4%)
+        pa_resident: Boolean for PA residency (for tax calculations)
+        fehb_premium: Monthly FEHB premium
+        filing_status: Tax filing status ("single" or "married")
+        sim_years: Number of years to simulate after retirement (default: 25)
     """
     # Initialize data structures
     months = []
@@ -173,9 +190,12 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     # Calculate month of retirement for partial year handling
     retirement_month = retire_date.month
     
-    # Run simulation for 40 years (monthly)
+    # Calculate simulation end date (sim_years after retirement)
+    sim_end_date = retire_date + relativedelta(years=sim_years)
+    
+    # Run simulation from start to end date (monthly)
     date = sim_start
-    for _ in range(40 * 12):
+    while date <= sim_end_date:
         # Skip past dates if we're simulating from current year
         if date < today and sim_start.year == today.year:
             date += relativedelta(months=1)
