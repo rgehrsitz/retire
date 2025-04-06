@@ -117,9 +117,39 @@ def calculate_monthly_rmd(age, balance):
     # Return monthly RMD
     return annual_rmd / 12
 
+# Medicare premium constants (2024 rates)
+MEDICARE_PART_B_PREMIUM = 174.70  # Standard monthly premium
+MEDICARE_PART_D_PREMIUM = 35.00   # Average monthly premium
+
+# Historical average TSP fund returns
+TSP_FUND_RETURNS = {
+    "G": 0.025,  # Very stable, low risk
+    "F": 0.035,  # Fixed income, medium-low risk
+    "C": 0.07,   # Tracks S&P 500, medium-high risk
+    "S": 0.08,   # Small cap index, high risk
+    "I": 0.065   # International stocks, high risk
+}
+
+def calculate_weighted_tsp_growth(fund_allocation):
+    """Calculate weighted TSP growth rate based on fund allocation"""
+    if not fund_allocation:
+        return None
+    
+    weighted_growth = (
+        fund_allocation.get("g_fund_pct", 0)/100 * TSP_FUND_RETURNS["G"] + 
+        fund_allocation.get("f_fund_pct", 0)/100 * TSP_FUND_RETURNS["F"] + 
+        fund_allocation.get("c_fund_pct", 0)/100 * TSP_FUND_RETURNS["C"] + 
+        fund_allocation.get("s_fund_pct", 0)/100 * TSP_FUND_RETURNS["S"] + 
+        fund_allocation.get("i_fund_pct", 0)/100 * TSP_FUND_RETURNS["I"]
+    )
+    
+    return weighted_growth
+
 def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
-                        ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
-                        pa_resident, fehb_premium, filing_status="single", sim_years=25):
+                       ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
+                       pa_resident, fehb_premium, filing_status="single", sim_years=25,
+                       bi_weekly_tsp_contribution=0, matching_contribution=True, include_medicare=True,
+                       fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False):
     """
     Simulate retirement income streams on a monthly basis
     
@@ -139,7 +169,19 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         fehb_premium: Monthly FEHB premium
         filing_status: Tax filing status ("single" or "married")
         sim_years: Number of years to simulate after retirement (default: 25)
+        bi_weekly_tsp_contribution: Biweekly TSP contribution amount
+        matching_contribution: Whether to include agency matching (5%)
+        include_medicare: Whether to include Medicare premiums at age 65
+        fehb_growth_rate: Annual growth rate for FEHB premiums
+        tsp_fund_allocation: Dictionary with fund allocation percentages
+        use_fund_allocation: Whether to use fund allocation instead of overall growth rate
     """
+    # If using fund allocation, calculate the weighted growth rate
+    if use_fund_allocation and tsp_fund_allocation:
+        calculated_tsp_growth = calculate_weighted_tsp_growth(tsp_fund_allocation)
+        if calculated_tsp_growth is not None:
+            tsp_growth = calculated_tsp_growth
+    
     # Initialize data structures
     months = []
     fers = []
@@ -148,6 +190,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     ss = []
     salary = []
     fehb = []
+    medicare = []
     total = []
     tsp_balance_history = []
     rmd_amounts = []
@@ -162,6 +205,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     today = dt.date.today()
     age_62 = birthdate + relativedelta(years=62)
     ss_start_date = birthdate + relativedelta(years=ss_start_age)
+    age_65 = birthdate + relativedelta(years=65)
     
     # Determine multiplier (1.1% if retiring at/after 62 with 20+ years, otherwise 1.0%)
     qualified_for_bonus = retire_date >= age_62 and service_years >= 20
@@ -222,10 +266,26 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             t = 0
             ss_amt = 0
             fehb_amt = 0
+            medicare_amt = 0
             
             # TSP contribution and growth during working years
-            # Assuming no withdrawals and continued growth
-            tsp_balance = tsp_balance * (1 + tsp_growth / 12)
+            if bi_weekly_tsp_contribution > 0:
+                # Calculate monthly TSP contribution (26 pay periods per year / 12 months)
+                contribution_amount = bi_weekly_tsp_contribution
+                
+                # Add agency matching if enabled (up to 5%)
+                if matching_contribution:
+                    # 5% matching: 1% automatic + 4% matching
+                    contribution_amount = contribution_amount * 1.05
+                
+                # Convert biweekly contribution to monthly (26 pay periods / 12 months)
+                monthly_contribution = contribution_amount * 26 / 12
+                
+                # Apply to TSP balance
+                tsp_balance = tsp_balance * (1 + tsp_growth / 12) + monthly_contribution
+            else:
+                # No contributions, just growth
+                tsp_balance = tsp_balance * (1 + tsp_growth / 12)
             
             # Initialize rmd_amount to 0 during working years
             rmd_amount = 0
@@ -290,8 +350,17 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             else:
                 ss_amt = 0
                 
-            # FEHB premium in retirement
-            fehb_amt = -fehb_premium
+            # FEHB premium in retirement with growth over time
+            years_in_retirement = (date.year - retire_date.year) + (date.month - retire_date.month) / 12
+            fehb_growth_factor = (1 + fehb_growth_rate) ** int(years_in_retirement)
+            current_fehb_premium = fehb_premium * fehb_growth_factor
+            fehb_amt = -current_fehb_premium
+            
+            # Medicare premiums at age 65+
+            if include_medicare and current_age >= 65:
+                medicare_amt = -(MEDICARE_PART_B_PREMIUM + MEDICARE_PART_D_PREMIUM)
+            else:
+                medicare_amt = 0
         
         # Special handling for mid-year retirement
         if date.year == retire_date.year:
@@ -318,6 +387,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 orig_t = t
                 orig_ss_amt = ss_amt
                 orig_fehb_amt = fehb_amt
+                orig_medicare_amt = medicare_amt
                 
                 # Reset all values to avoid double-counting
                 s = 0
@@ -326,6 +396,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 t = 0
                 ss_amt = 0
                 fehb_amt = 0
+                medicare_amt = 0
                 
                 # Adjust values for partial month - only count each portion once
                 s = working_salary  # Salary for working days only
@@ -334,6 +405,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 t = orig_t * retired_ratio
                 ss_amt = orig_ss_amt * retired_ratio
                 fehb_amt = orig_fehb_amt * retired_ratio
+                medicare_amt = orig_medicare_amt * retired_ratio
         
         # Record data
         
@@ -348,7 +420,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         ss.append(ss_amt)
         salary.append(s)
         fehb.append(fehb_amt)
-        total.append(f + fs + t + ss_amt + s + fehb_amt)
+        medicare.append(medicare_amt)
+        total.append(f + fs + t + ss_amt + s + fehb_amt + medicare_amt)
         tsp_balance_history.append(tsp_balance)
         rmd_amounts.append(rmd_amount)
         
@@ -364,6 +437,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         "TSP": tsp,
         "Social_Security": ss,
         "FEHB": fehb,
+        "Medicare": medicare,
         "Total_Income": total,
         "TSP_Balance": tsp_balance_history,
         "RMD_Amount": rmd_amounts
@@ -386,7 +460,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             df.loc[fix_mask, "FERS_Supplement"] + 
             df.loc[fix_mask, "TSP"] + 
             df.loc[fix_mask, "Social_Security"] + 
-            df.loc[fix_mask, "FEHB"]
+            df.loc[fix_mask, "FEHB"] +
+            df.loc[fix_mask, "Medicare"]
         )
     
     return df

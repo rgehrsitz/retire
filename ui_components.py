@@ -107,6 +107,123 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"tsp_balance_{scenario_letter.lower()}"
     )
     
+    # Add TSP contribution fields
+    st.subheader("TSP Contributions")
+    
+    bi_weekly_tsp_contribution = st.number_input(
+        "Biweekly TSP Contribution ($)", 
+        value=st.session_state.get(session_key, {}).get(
+            'bi_weekly_tsp_contribution', 
+            1000
+        ),
+        step=50,
+        key=f"tsp_contribution_{scenario_letter.lower()}"
+    )
+
+    matching_contribution = st.checkbox(
+        "Include Agency Matching", 
+        value=st.session_state.get(session_key, {}).get(
+            'matching_contribution', 
+            True
+        ),
+        key=f"tsp_matching_{scenario_letter.lower()}"
+    )
+    
+    # TSP Fund Allocation
+    st.subheader("TSP Fund Allocation")
+    
+    # Option to use either a custom allocation or the default growth rate
+    use_fund_allocation = st.checkbox(
+        "Use Custom Fund Allocation",
+        value=st.session_state.get(session_key, {}).get(
+            'use_fund_allocation',
+            False
+        ),
+        key=f"use_fund_allocation_{scenario_letter.lower()}"
+    )
+    
+    tsp_fund_allocation = {}
+    
+    if use_fund_allocation:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            g_fund_pct = st.slider(
+                "G Fund %", 
+                0, 100, 
+                st.session_state.get(session_key, {}).get('g_fund_pct', 20),
+                5,
+                key=f"g_fund_pct_{scenario_letter.lower()}"
+            )
+            
+            f_fund_pct = st.slider(
+                "F Fund %", 
+                0, 100, 
+                st.session_state.get(session_key, {}).get('f_fund_pct', 10),
+                5,
+                key=f"f_fund_pct_{scenario_letter.lower()}"
+            )
+            
+            c_fund_pct = st.slider(
+                "C Fund %", 
+                0, 100, 
+                st.session_state.get(session_key, {}).get('c_fund_pct', 40),
+                5,
+                key=f"c_fund_pct_{scenario_letter.lower()}"
+            )
+        
+        with col2:
+            s_fund_pct = st.slider(
+                "S Fund %", 
+                0, 100, 
+                st.session_state.get(session_key, {}).get('s_fund_pct', 20),
+                5,
+                key=f"s_fund_pct_{scenario_letter.lower()}"
+            )
+            
+            i_fund_pct = st.slider(
+                "I Fund %", 
+                0, 100, 
+                st.session_state.get(session_key, {}).get('i_fund_pct', 10),
+                5,
+                key=f"i_fund_pct_{scenario_letter.lower()}"
+            )
+        
+        # Calculate total allocation
+        total_allocation = g_fund_pct + f_fund_pct + c_fund_pct + s_fund_pct + i_fund_pct
+        
+        # Show warning if total allocation doesn't equal 100%
+        if total_allocation != 100:
+            st.warning(f"Fund allocations must add up to 100%. Current total: {total_allocation}%")
+        else:
+            # Store the allocations
+            tsp_fund_allocation = {
+                "g_fund_pct": g_fund_pct,
+                "f_fund_pct": f_fund_pct,
+                "c_fund_pct": c_fund_pct,
+                "s_fund_pct": s_fund_pct,
+                "i_fund_pct": i_fund_pct
+            }
+            
+            # Show the calculated weighted growth rate based on historical averages
+            fund_returns = {
+                "G": 0.025,  # Very stable, low risk
+                "F": 0.035,  # Fixed income, medium-low risk
+                "C": 0.07,   # Tracks S&P 500, medium-high risk
+                "S": 0.08,   # Small cap index, high risk
+                "I": 0.065   # International stocks, high risk
+            }
+            
+            weighted_growth = (
+                g_fund_pct/100 * fund_returns["G"] + 
+                f_fund_pct/100 * fund_returns["F"] + 
+                c_fund_pct/100 * fund_returns["C"] + 
+                s_fund_pct/100 * fund_returns["S"] + 
+                i_fund_pct/100 * fund_returns["I"]
+            )
+            
+            st.info(f"Estimated weighted TSP growth rate based on your allocation: {weighted_growth:.2%}")
+    
     sick_leave_hours = st.number_input(
         "Sick Leave (hours)", 
         value=st.session_state.get(session_key, {}).get(
@@ -154,6 +271,17 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"fehb_premium_{scenario_letter.lower()}"
     )
     
+    # FEHB premium increases over time
+    fehb_growth_rate = st.slider(
+        "Annual FEHB Premium Growth Rate (%)",
+        min_value=0.02, 
+        max_value=0.08, 
+        value=st.session_state.get(session_key, {}).get('fehb_growth_rate', 0.05),
+        step=0.001,
+        format="%.3f",
+        key=f"fehb_growth_{scenario_letter.lower()}"
+    )
+    
     # Financial Assumptions
     cola = st.slider(
         "Annual COLA (%)", 
@@ -185,6 +313,13 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"tsp_withdraw_{scenario_letter.lower()}"
     )
     
+    # Medicare options
+    include_medicare = st.checkbox(
+        "Include Medicare premiums at age 65", 
+        value=st.session_state.get(session_key, {}).get('include_medicare', True),
+        key=f"medicare_{scenario_letter.lower()}"
+    )
+    
     # Scenario notes
     scenario_notes = st.text_area(
         "Scenario Notes", 
@@ -210,10 +345,14 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
             'filing_status': filing_status,
             'pa_resident': pa_resident,
             'fehb_premium': fehb_premium,
+            'fehb_growth_rate': fehb_growth_rate,
             'cola': cola,
             'tsp_growth': tsp_growth,
             'tsp_withdraw': tsp_withdraw,
-            'notes': scenario_notes
+            'notes': scenario_notes,
+            'bi_weekly_tsp_contribution': bi_weekly_tsp_contribution,
+            'matching_contribution': matching_contribution,
+            'include_medicare': include_medicare
         }
         
         # Save to file
@@ -241,7 +380,11 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         "tsp_withdraw": tsp_withdraw,
         "pa_resident": pa_resident,
         "fehb_premium": fehb_premium,
-        "filing_status": filing_status
+        "fehb_growth_rate": fehb_growth_rate,
+        "filing_status": filing_status,
+        "bi_weekly_tsp_contribution": bi_weekly_tsp_contribution,
+        "matching_contribution": matching_contribution,
+        "include_medicare": include_medicare
     }
 
 def render_export_options(df_a, df_b, to_excel_func):

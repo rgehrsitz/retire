@@ -86,8 +86,33 @@ with tab1:
         scenario_b = render_scenario_inputs("B", "scenario_b", DEFAULT_COLA, DEFAULT_TSP_GROWTH, DEFAULT_TSP_WITHDRAW)
     
     # Run simulations
-    df_a = simulate_retirement(**scenario_a)
-    df_b = simulate_retirement(**scenario_b)
+    # Create copies of the scenario dictionaries to avoid modifying the original
+    scenario_a_sim = scenario_a.copy()
+    scenario_b_sim = scenario_b.copy()
+    
+    # Add TSP fund allocation to scenario A
+    scenario_a_sim["tsp_fund_allocation"] = {
+        "g_fund_pct": st.session_state.get("scenario_a", {}).get("g_fund_pct", 20),
+        "f_fund_pct": st.session_state.get("scenario_a", {}).get("f_fund_pct", 10),
+        "c_fund_pct": st.session_state.get("scenario_a", {}).get("c_fund_pct", 40),
+        "s_fund_pct": st.session_state.get("scenario_a", {}).get("s_fund_pct", 20),
+        "i_fund_pct": st.session_state.get("scenario_a", {}).get("i_fund_pct", 10)
+    }
+    scenario_a_sim["use_fund_allocation"] = st.session_state.get("scenario_a", {}).get("use_fund_allocation", False)
+    
+    # Add TSP fund allocation to scenario B
+    scenario_b_sim["tsp_fund_allocation"] = {
+        "g_fund_pct": st.session_state.get("scenario_b", {}).get("g_fund_pct", 20),
+        "f_fund_pct": st.session_state.get("scenario_b", {}).get("f_fund_pct", 10),
+        "c_fund_pct": st.session_state.get("scenario_b", {}).get("c_fund_pct", 40),
+        "s_fund_pct": st.session_state.get("scenario_b", {}).get("s_fund_pct", 20),
+        "i_fund_pct": st.session_state.get("scenario_b", {}).get("i_fund_pct", 10)
+    }
+    scenario_b_sim["use_fund_allocation"] = st.session_state.get("scenario_b", {}).get("use_fund_allocation", False)
+    
+    # Run the simulations with the updated scenario dictionaries
+    df_a = simulate_retirement(**scenario_a_sim)
+    df_b = simulate_retirement(**scenario_b_sim)
     
     # Calculate dates for Social Security start
     ss_date_a = scenario_a["birthdate"] + relativedelta(years=scenario_a["ss_start_age"])
