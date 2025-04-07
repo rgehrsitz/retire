@@ -46,6 +46,26 @@ if 'initialized' not in st.session_state:
     st.session_state['initialized'] = True
     # Default values will be set when we define the inputs
 
+# Check for scenario loading requests (this must be at the top level before any UI elements)
+if 'load_scenario_request' in st.session_state:
+    # Get the loading request details
+    scenario_name = st.session_state['load_scenario_request']['name']
+    session_key = st.session_state['load_scenario_request']['session_key']
+    
+    # Load the scenario data
+    try:
+        scenario_data = load_scenario(f"scenarios/{scenario_name}.json")
+        # Update session state with loaded data
+        st.session_state[session_key] = scenario_data
+        st.session_state['scenario_loaded'] = f"Successfully loaded scenario: {scenario_name}"
+        # Clear the request
+        del st.session_state['load_scenario_request']
+    except Exception as e:
+        st.session_state['scenario_loaded'] = f"Error loading scenario: {str(e)}"
+        # Clear the request on error too
+        if 'load_scenario_request' in st.session_state:
+            del st.session_state['load_scenario_request']
+
 def to_excel(df):
     """Convert DataFrame to Excel bytes for download"""
     output = BytesIO()

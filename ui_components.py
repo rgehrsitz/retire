@@ -41,16 +41,29 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
     scenarios = get_available_scenarios()
     if scenarios:
         load_scenario_key = f"load_scenario_{scenario_letter.lower()}"
+        
+        # Show success message if scenario was just loaded
+        if 'scenario_loaded' in st.session_state:
+            st.success(st.session_state['scenario_loaded'])
+            # Clear the message after showing once
+            del st.session_state['scenario_loaded']
+        
+        # Show dropdown to select scenario
         selected_scenario = st.selectbox(
             "Load saved scenario", 
             ["None"] + scenarios, 
             key=load_scenario_key
         )
-        if selected_scenario != "None":
-            scenario_data = load_scenario(f"scenarios/{selected_scenario}.json")
-            # Set as default values for inputs
-            if session_key not in st.session_state:
-                st.session_state[session_key] = scenario_data
+        
+        # Add a load button to actually load the scenario
+        if selected_scenario != "None" and st.button(f"Load {selected_scenario}", key=f"load_button_{scenario_letter.lower()}"):
+            # Set up a request to load this scenario
+            st.session_state['load_scenario_request'] = {
+                'name': selected_scenario,
+                'session_key': session_key
+            }
+            # Trigger a rerun to apply the changes
+            st.rerun()
     
     # Personal Information
     birthdate = st.date_input(
