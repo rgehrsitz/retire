@@ -8,7 +8,9 @@ def run_monte_carlo_simulation(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, cola_std, tsp_growth_mean, tsp_growth_std, 
     tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
-    num_simulations=100, sim_years=25
+    num_simulations=100, sim_years=25, bi_weekly_tsp_contribution=0, 
+    matching_contribution=True, include_medicare=True, fehb_growth_rate=0.05,
+    tsp_fund_allocation=None, use_fund_allocation=False
 ):
     """
     Run Monte Carlo simulation for retirement planning
@@ -21,6 +23,12 @@ def run_monte_carlo_simulation(
     - tsp_growth_std: Standard deviation for TSP growth (e.g., 0.10 for 10%)
     - num_simulations: Number of simulation runs (default: 100)
     - sim_years: Number of years to simulate after retirement (default: 25)
+    - bi_weekly_tsp_contribution: Biweekly TSP contribution amount
+    - matching_contribution: Whether to include agency matching (5%)
+    - include_medicare: Whether to include Medicare premiums at age 65
+    - fehb_growth_rate: Annual growth rate for FEHB premiums
+    - tsp_fund_allocation: Dictionary with fund allocation percentages
+    - use_fund_allocation: Whether to use fund allocation instead of overall growth rate
     
     Returns:
     - DataFrame with retirement dates as index and percentile columns for each month
@@ -29,7 +37,13 @@ def run_monte_carlo_simulation(
     first_sim = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status, sim_years
+        pa_resident, fehb_premium, filing_status, sim_years,
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
     )
     
     # Create dates index
@@ -50,7 +64,13 @@ def run_monte_carlo_simulation(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status, sim_years
+            pa_resident, fehb_premium, filing_status, sim_years,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         
         # Store total income in results matrix
@@ -149,7 +169,10 @@ def calculate_risk_metrics(mc_results, starting_income):
 def run_stress_tests(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw, 
-    pa_resident, fehb_premium, filing_status="single"
+    pa_resident, fehb_premium, filing_status="single", 
+    bi_weekly_tsp_contribution=0, matching_contribution=True, 
+    include_medicare=True, fehb_growth_rate=0.05,
+    tsp_fund_allocation=None, use_fund_allocation=False
 ):
     """Run stress tests with different market scenarios"""
     
@@ -159,21 +182,39 @@ def run_stress_tests(
     results["best_case"] = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean + 0.005, tsp_growth_mean + 0.03, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status
+        pa_resident, fehb_premium, filing_status,
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
     )
     
     # Average case scenario (baseline)
     results["average_case"] = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status
+        pa_resident, fehb_premium, filing_status,
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
     )
     
     # Worst case scenario
     results["worst_case"] = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean - 0.005, tsp_growth_mean - 0.03, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status
+        pa_resident, fehb_premium, filing_status,
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
     )
     
     return results
@@ -188,7 +229,9 @@ def run_monte_carlo_with_tsp_tracking(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, cola_std, tsp_growth_mean, tsp_growth_std, 
     tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
-    num_simulations=100, sim_years=25
+    num_simulations=100, sim_years=25, bi_weekly_tsp_contribution=0, 
+    matching_contribution=True, include_medicare=True, fehb_growth_rate=0.05,
+    tsp_fund_allocation=None, use_fund_allocation=False
 ):
     """Run Monte Carlo simulations with TSP balance tracking"""
     # Store full simulation results to track TSP balances
@@ -206,7 +249,13 @@ def run_monte_carlo_with_tsp_tracking(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status, sim_years
+            pa_resident, fehb_premium, filing_status, sim_years,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         
         # Store full simulation result
@@ -217,8 +266,9 @@ def run_monte_carlo_with_tsp_tracking(
 def run_sensitivity_analysis(
     birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
     ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw, 
-    pa_resident, fehb_premium, filing_status="single",
-    parameter_ranges=None
+    pa_resident, fehb_premium, filing_status="single", bi_weekly_tsp_contribution=0,
+    matching_contribution=True, include_medicare=True, fehb_growth_rate=0.05,
+    tsp_fund_allocation=None, use_fund_allocation=False, parameter_ranges=None
 ):
     """Run sensitivity analysis by varying one parameter at a time"""
     if parameter_ranges is None:
@@ -241,7 +291,13 @@ def run_sensitivity_analysis(
     base_case = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status
+        pa_resident, fehb_premium, filing_status, 
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
     )
     
     results["base_case"] = base_case
@@ -251,7 +307,13 @@ def run_sensitivity_analysis(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola, tsp_growth_mean, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         results["cola"][cola] = sim_df
     
@@ -260,7 +322,13 @@ def run_sensitivity_analysis(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola_mean, growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         results["tsp_growth"][growth] = sim_df
     
@@ -269,7 +337,13 @@ def run_sensitivity_analysis(
         sim_df = simulate_retirement(
             birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola_mean, tsp_growth_mean, withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         results["tsp_withdraw"][withdraw] = sim_df
     
@@ -279,7 +353,13 @@ def run_sensitivity_analysis(
         sim_df = simulate_retirement(
             birthdate, start_date, delayed_retire_date, high3, tsp_start, sick_leave_hours,
             ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status
+            pa_resident, fehb_premium, filing_status,
+            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+            matching_contribution=matching_contribution,
+            include_medicare=include_medicare,
+            fehb_growth_rate=fehb_growth_rate,
+            tsp_fund_allocation=tsp_fund_allocation,
+            use_fund_allocation=use_fund_allocation
         )
         results["retire_delay_years"][years] = sim_df
     

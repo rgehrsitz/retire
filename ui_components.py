@@ -97,6 +97,17 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"high3_{scenario_letter.lower()}"
     )
     
+    # Add current salary field for accurate TSP calculations
+    current_salary = st.number_input(
+        "Current Annual Salary ($)", 
+        value=st.session_state.get(session_key, {}).get(
+            'current_salary',
+            high3  # Default to high-3 as starting point
+        ),
+        step=1000,
+        key=f"current_salary_{scenario_letter.lower()}"
+    )
+    
     tsp_start = st.number_input(
         "TSP Balance ($)", 
         value=st.session_state.get(session_key, {}).get(
@@ -110,24 +121,67 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
     # Add TSP contribution fields
     st.subheader("TSP Contributions")
     
-    bi_weekly_tsp_contribution = st.number_input(
-        "Biweekly TSP Contribution ($)", 
-        value=st.session_state.get(session_key, {}).get(
-            'bi_weekly_tsp_contribution', 
-            1000
-        ),
-        step=50,
-        key=f"tsp_contribution_{scenario_letter.lower()}"
+    tsp_contribution_type = st.radio(
+        "TSP Contribution Input Type",
+        ["Percentage of Salary", "Specific Dollar Amount"],
+        index=0 if st.session_state.get(session_key, {}).get('tsp_contribution_type', "Percentage of Salary") == "Percentage of Salary" else 1,
+        key=f"tsp_input_type_{scenario_letter.lower()}"
     )
+    
+    bi_weekly_salary = current_salary / 26
+    
+    if tsp_contribution_type == "Percentage of Salary":
+        tsp_percentage = st.slider(
+            "TSP Contribution (%)",
+            min_value=0.0,
+            max_value=15.0,
+            value=st.session_state.get(session_key, {}).get('tsp_percentage', 5.0),
+            step=0.5,
+            key=f"tsp_percentage_{scenario_letter.lower()}"
+        )
+        # Calculate biweekly amount
+        bi_weekly_tsp_contribution = bi_weekly_salary * (tsp_percentage / 100)
+        st.write(f"Biweekly Contribution: ${bi_weekly_tsp_contribution:.2f}")
+    else:
+        bi_weekly_tsp_contribution = st.number_input(
+            "Biweekly TSP Contribution ($)",
+            value=st.session_state.get(session_key, {}).get('bi_weekly_tsp_contribution', 200),
+            step=25,
+            key=f"tsp_contribution_{scenario_letter.lower()}"
+        )
+        # Show as percentage
+        contribution_percentage = (bi_weekly_tsp_contribution / bi_weekly_salary) * 100 if bi_weekly_salary > 0 else 0
+        st.write(f"Contribution Percentage: {contribution_percentage:.2f}%")
 
     matching_contribution = st.checkbox(
         "Include Agency Matching", 
-        value=st.session_state.get(session_key, {}).get(
-            'matching_contribution', 
-            True
-        ),
+        value=st.session_state.get(session_key, {}).get('matching_contribution', True),
         key=f"tsp_matching_{scenario_letter.lower()}"
     )
+    
+    matching_amount = 0
+    if matching_contribution:
+        # Calculate the percentage for matching calculation
+        contribution_percentage = (bi_weekly_tsp_contribution / bi_weekly_salary) * 100 if bi_weekly_salary > 0 else 0
+        
+        # Calculate matching based on TSP rules
+        # Automatic 1%
+        matching_amount += bi_weekly_salary * 0.01
+        
+        # Match dollar-for-dollar on first 3%
+        if contribution_percentage >= 3:
+            matching_amount += bi_weekly_salary * 0.03
+        else:
+            matching_amount += bi_weekly_salary * (contribution_percentage / 100)
+        
+        # Match 50 cents on the dollar for next 2%
+        if contribution_percentage >= 5:
+            matching_amount += bi_weekly_salary * 0.01  # 50% of 2%
+        elif contribution_percentage > 3:
+            matching_amount += bi_weekly_salary * (contribution_percentage - 3) / 100 * 0.5
+        
+        st.write(f"Agency Matching: ${matching_amount:.2f} per paycheck")
+        st.write(f"Total Biweekly Contribution: ${bi_weekly_tsp_contribution + matching_amount:.2f}")
     
     # TSP Fund Allocation
     st.subheader("TSP Fund Allocation")

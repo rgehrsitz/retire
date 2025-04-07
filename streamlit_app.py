@@ -90,6 +90,13 @@ with tab1:
     scenario_a_sim = scenario_a.copy()
     scenario_b_sim = scenario_b.copy()
     
+    # Add current salary to the scenarios
+    if "current_salary" not in scenario_a_sim:
+        scenario_a_sim["current_salary"] = st.session_state.get("scenario_a", {}).get("current_salary", scenario_a["high3"])
+    
+    if "current_salary" not in scenario_b_sim:
+        scenario_b_sim["current_salary"] = st.session_state.get("scenario_b", {}).get("current_salary", scenario_b["high3"])
+    
     # Add TSP fund allocation to scenario A
     scenario_a_sim["tsp_fund_allocation"] = {
         "g_fund_pct": st.session_state.get("scenario_a", {}).get("g_fund_pct", 20),

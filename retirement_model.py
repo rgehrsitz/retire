@@ -149,7 +149,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                        ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
                        pa_resident, fehb_premium, filing_status="single", sim_years=25,
                        bi_weekly_tsp_contribution=0, matching_contribution=True, include_medicare=True,
-                       fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False):
+                       fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False,
+                       current_salary=None):
     """
     Simulate retirement income streams on a monthly basis
     
@@ -175,12 +176,17 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         fehb_growth_rate: Annual growth rate for FEHB premiums
         tsp_fund_allocation: Dictionary with fund allocation percentages
         use_fund_allocation: Whether to use fund allocation instead of overall growth rate
+        current_salary: Current annual salary for accurate matching calculations
     """
     # If using fund allocation, calculate the weighted growth rate
     if use_fund_allocation and tsp_fund_allocation:
         calculated_tsp_growth = calculate_weighted_tsp_growth(tsp_fund_allocation)
         if calculated_tsp_growth is not None:
             tsp_growth = calculated_tsp_growth
+    
+    # Use high3 as current salary if not provided
+    if current_salary is None:
+        current_salary = high3
     
     # Initialize data structures
     months = []
@@ -271,15 +277,32 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             # TSP contribution and growth during working years
             if bi_weekly_tsp_contribution > 0:
                 # Calculate monthly TSP contribution (26 pay periods per year / 12 months)
-                contribution_amount = bi_weekly_tsp_contribution
+                bi_weekly_salary = current_salary / 26
                 
-                # Add agency matching if enabled (up to 5%)
+                # Calculate accurate matching based on TSP rules if enabled
+                matching_amount = 0
                 if matching_contribution:
-                    # 5% matching: 1% automatic + 4% matching
-                    contribution_amount = contribution_amount * 1.05
+                    # Calculate the percentage for matching
+                    contribution_percentage = (bi_weekly_tsp_contribution / bi_weekly_salary) * 100 if bi_weekly_salary > 0 else 0
+                    
+                    # Automatic 1%
+                    matching_amount += bi_weekly_salary * 0.01
+                    
+                    # Match dollar-for-dollar on first 3%
+                    if contribution_percentage >= 3:
+                        matching_amount += bi_weekly_salary * 0.03
+                    else:
+                        matching_amount += bi_weekly_salary * (contribution_percentage / 100)
+                    
+                    # Match 50 cents on the dollar for next 2%
+                    if contribution_percentage >= 5:
+                        matching_amount += bi_weekly_salary * 0.01  # 50% of 2%
+                    elif contribution_percentage > 3:
+                        matching_amount += bi_weekly_salary * (contribution_percentage - 3) / 100 * 0.5
                 
                 # Convert biweekly contribution to monthly (26 pay periods / 12 months)
-                monthly_contribution = contribution_amount * 26 / 12
+                total_biweekly = bi_weekly_tsp_contribution + matching_amount
+                monthly_contribution = total_biweekly * 26 / 12
                 
                 # Apply to TSP balance
                 tsp_balance = tsp_balance * (1 + tsp_growth / 12) + monthly_contribution
