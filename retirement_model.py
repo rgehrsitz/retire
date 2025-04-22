@@ -1,3 +1,9 @@
+"""
+retirement_model.py
+------------------
+Core logic for federal retirement simulation, including calculation helpers, input validation, and simulation orchestration.
+"""
+
 import datetime as dt
 from dateutil.relativedelta import relativedelta
 import pandas as pd
@@ -117,6 +123,13 @@ def calculate_monthly_rmd(age, balance):
     # Return monthly RMD
     return annual_rmd / 12
 
+def calculate_state_tax(pa_resident, income):
+    """Return state tax based on residency; extendable for other states."""
+    if pa_resident:
+        return 0.0
+    # Default flat 3% for non-PA; customize as needed
+    return income * 0.03
+
 # Medicare premium constants (2024 rates)
 MEDICARE_PART_B_PREMIUM = 174.70  # Standard monthly premium
 MEDICARE_PART_D_PREMIUM = 35.00   # Average monthly premium
@@ -145,6 +158,77 @@ def calculate_weighted_tsp_growth(fund_allocation):
     
     return weighted_growth
 
+# --- Helper Functions for Modularity & Validation ---
+def validate_inputs(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours, ss_start_age, cola, tsp_growth, tsp_withdraw, fehb_premium, sim_years):
+    """Validate key user inputs for the simulation. Returns error list."""
+    errors = []
+    if not isinstance(high3, (int, float)) or high3 < 0:
+        errors.append("High-3 salary cannot be negative.")
+    if not isinstance(tsp_start, (int, float)) or tsp_start < 0:
+        errors.append("Starting TSP balance cannot be negative.")
+    if not isinstance(sick_leave_hours, (int, float)) or sick_leave_hours < 0:
+        errors.append("Sick leave hours cannot be negative.")
+    if not isinstance(ss_start_age, int) or ss_start_age < 62 or ss_start_age > 70:
+        errors.append("Social Security start age should be between 62 and 70.")
+    if not isinstance(cola, (int, float)) or cola < 0:
+        errors.append("COLA cannot be negative.")
+    if not isinstance(tsp_growth, (int, float)) or tsp_growth < 0:
+        errors.append("TSP growth cannot be negative.")
+    if not isinstance(tsp_withdraw, (int, float)) or tsp_withdraw < 0:
+        errors.append("TSP withdrawal rate cannot be negative.")
+    if not isinstance(fehb_premium, (int, float)) or fehb_premium < 0:
+        errors.append("FEHB premium cannot be negative.")
+    if not isinstance(sim_years, int) or sim_years < 1:
+        errors.append("Simulation years must be at least 1.")
+    if not (isinstance(retire_date, dt.date) and isinstance(start_date, dt.date) and isinstance(birthdate, dt.date)):
+        errors.append("Dates must be valid date objects.")
+    elif retire_date <= start_date:
+        errors.append("Retirement date must be after service start date.")
+    elif birthdate >= retire_date:
+        errors.append("Birthdate must be before retirement date.")
+    # Warn if service years or sick leave conversion is excessive
+    if sick_leave_hours > 5000:
+        errors.append("Warning: Unusually high sick leave hours; please verify input.")
+    return errors
+
+def calculate_tsp_matching(bi_weekly_salary, bi_weekly_tsp_contribution, matching_contribution):
+    """Calculate TSP matching amount per pay period."""
+    matching_amount = 0
+    if not matching_contribution or bi_weekly_salary <= 0:
+        return matching_amount
+    contribution_percentage = (bi_weekly_tsp_contribution / bi_weekly_salary) * 100
+    # Automatic 1%
+    matching_amount += bi_weekly_salary * 0.01
+    # Match dollar-for-dollar on first 3%
+    if contribution_percentage >= 3:
+        matching_amount += bi_weekly_salary * 0.03
+    else:
+        matching_amount += bi_weekly_salary * (contribution_percentage / 100)
+    # Match 50 cents on the dollar for next 2%
+    if contribution_percentage >= 5:
+        matching_amount += bi_weekly_salary * 0.01  # 50% of 2%
+    elif contribution_percentage > 3:
+        matching_amount += bi_weekly_salary * (contribution_percentage - 3) / 100 * 0.5
+    return matching_amount
+
+def apply_cola(base, cola, years):
+    """Apply COLA to a base value for a number of years (compounded annually)."""
+    return base * ((1 + cola) ** int(years))
+
+def prorate_monthly_values(working_days, retired_days, days_in_month, working_salary, orig_f, orig_fs, orig_t, orig_ss_amt, orig_fehb_amt, orig_medicare_amt):
+    """Blend working and retired values for a partial retirement month."""
+    working_ratio = working_days / days_in_month
+    retired_ratio = retired_days / days_in_month
+    s = working_salary * working_ratio
+    f = orig_f * retired_ratio
+    fs = orig_fs * retired_ratio
+    t = orig_t * retired_ratio
+    ss_amt = orig_ss_amt * retired_ratio
+    fehb_amt = orig_fehb_amt * retired_ratio
+    medicare_amt = orig_medicare_amt * retired_ratio
+    return s, f, fs, t, ss_amt, fehb_amt, medicare_amt
+
+# --- Main Simulation Function ---
 def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
                        ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
                        pa_resident, fehb_premium, filing_status="single", sim_years=25,
@@ -152,32 +236,16 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                        fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False,
                        current_salary=None):
     """
-    Simulate retirement income streams on a monthly basis
-    
-    Parameters:
-        birthdate: Date of birth
-        start_date: Service start date
-        retire_date: Retirement date
-        high3: High-3 salary
-        tsp_start: Starting TSP balance
-        sick_leave_hours: Sick leave hours for service credit
-        ss_start_age: Age to begin Social Security
-        survivor_option: Survivor benefit option ("None", "Partial", or "Full")
-        cola: Annual COLA percentage (e.g., 0.02 for 2%)
-        tsp_growth: Annual TSP growth percentage (e.g., 0.05 for 5%)
-        tsp_withdraw: Annual TSP withdrawal rate (e.g., 0.04 for 4%)
-        pa_resident: Boolean for PA residency (for tax calculations)
-        fehb_premium: Monthly FEHB premium
-        filing_status: Tax filing status ("single" or "married")
-        sim_years: Number of years to simulate after retirement (default: 25)
-        bi_weekly_tsp_contribution: Biweekly TSP contribution amount
-        matching_contribution: Whether to include agency matching (5%)
-        include_medicare: Whether to include Medicare premiums at age 65
-        fehb_growth_rate: Annual growth rate for FEHB premiums
-        tsp_fund_allocation: Dictionary with fund allocation percentages
-        use_fund_allocation: Whether to use fund allocation instead of overall growth rate
-        current_salary: Current annual salary for accurate matching calculations
+    Simulate retirement income streams on a monthly basis.
+    Returns a DataFrame with results.
+    Raises ValueError if input validation fails.
     """
+    # --- Input Validation ---
+    errors = validate_inputs(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours, ss_start_age, cola, tsp_growth, tsp_withdraw, fehb_premium, sim_years)
+    if errors:
+        # For Streamlit: surface warnings in UI if possible
+        raise ValueError("; ".join(errors))
+    
     # If using fund allocation, calculate the weighted growth rate
     if use_fund_allocation and tsp_fund_allocation:
         calculated_tsp_growth = calculate_weighted_tsp_growth(tsp_fund_allocation)
@@ -224,7 +292,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     gross_annuity = multiplier * service_years * high3 * (1 - survivor_reduction)
     
     # Tax rates
-    state_tax = 0.03 if not pa_resident else 0.00
+    state_tax = calculate_state_tax(pa_resident, high3)
     
     # TSP setup
     tsp_balance = tsp_start
@@ -280,25 +348,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 bi_weekly_salary = current_salary / 26
                 
                 # Calculate accurate matching based on TSP rules if enabled
-                matching_amount = 0
-                if matching_contribution:
-                    # Calculate the percentage for matching
-                    contribution_percentage = (bi_weekly_tsp_contribution / bi_weekly_salary) * 100 if bi_weekly_salary > 0 else 0
-                    
-                    # Automatic 1%
-                    matching_amount += bi_weekly_salary * 0.01
-                    
-                    # Match dollar-for-dollar on first 3%
-                    if contribution_percentage >= 3:
-                        matching_amount += bi_weekly_salary * 0.03
-                    else:
-                        matching_amount += bi_weekly_salary * (contribution_percentage / 100)
-                    
-                    # Match 50 cents on the dollar for next 2%
-                    if contribution_percentage >= 5:
-                        matching_amount += bi_weekly_salary * 0.01  # 50% of 2%
-                    elif contribution_percentage > 3:
-                        matching_amount += bi_weekly_salary * (contribution_percentage - 3) / 100 * 0.5
+                matching_amount = calculate_tsp_matching(bi_weekly_salary, bi_weekly_tsp_contribution, matching_contribution)
                 
                 # Convert biweekly contribution to monthly (26 pay periods / 12 months)
                 total_biweekly = bi_weekly_tsp_contribution + matching_amount
@@ -319,8 +369,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             
             # FERS annuity with COLA
             years_retired = (date.year - retire_date.year) + (date.month - retire_date.month) / 12
-            cola_applied = (1 + cola) ** int(years_retired)
-            monthly_annuity = (gross_annuity / 12) * cola_applied
+            monthly_annuity = apply_cola(gross_annuity / 12, cola, years_retired)
             
             # Progressive tax on annuity
             annual_annuity = monthly_annuity * 12
@@ -350,11 +399,14 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             t = tsp_draw * (1 - effective_tsp_rate)
             tsp_balance = (tsp_balance - tsp_draw) * (1 + tsp_growth / 12)
             
+            # Prevent negative TSP balance
+            if tsp_balance < 0:
+                tsp_balance = 0
+            
             # Social Security
             if date >= ss_start_date:
                 years_on_ss = (date.year - ss_start_date.year) + (date.month - ss_start_date.month) / 12
-                ss_cola_applied = (1 + cola) ** int(years_on_ss)
-                monthly_ss = ss_benefit * ss_cola_applied
+                monthly_ss = apply_cola(ss_benefit, cola, years_on_ss)
                 
                 # 85% of SS may be taxable depending on income
                 # Simplified calculation
@@ -372,7 +424,11 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 ss_amt = monthly_ss - ss_tax
             else:
                 ss_amt = 0
-                
+            
+            # Prevent negative Social Security
+            if ss_amt < 0:
+                ss_amt = 0
+            
             # FEHB premium in retirement with growth over time
             years_in_retirement = (date.year - retire_date.year) + (date.month - retire_date.month) / 12
             fehb_growth_factor = (1 + fehb_growth_rate) ** int(years_in_retirement)
@@ -402,7 +458,14 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 annual_salary = high3
                 federal_tax = calculate_federal_tax(annual_salary, filing_status) / 12
                 effective_fed_rate = federal_tax / monthly_gross_salary
-                working_salary = monthly_gross_salary * (1 - effective_fed_rate - state_tax) * working_ratio
+                
+                s = monthly_gross_salary * (1 - effective_fed_rate - state_tax)
+                f = 0
+                fs = 0
+                t = 0
+                ss_amt = 0
+                fehb_amt = 0
+                medicare_amt = 0
                 
                 # Store original values for retirement portion calculations
                 orig_f = f
@@ -413,22 +476,9 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 orig_medicare_amt = medicare_amt
                 
                 # Reset all values to avoid double-counting
-                s = 0
-                f = 0
-                fs = 0
-                t = 0
-                ss_amt = 0
-                fehb_amt = 0
-                medicare_amt = 0
-                
-                # Adjust values for partial month - only count each portion once
-                s = working_salary  # Salary for working days only
-                f = orig_f * retired_ratio  # Retirement benefits only for retired days
-                fs = orig_fs * retired_ratio
-                t = orig_t * retired_ratio
-                ss_amt = orig_ss_amt * retired_ratio
-                fehb_amt = orig_fehb_amt * retired_ratio
-                medicare_amt = orig_medicare_amt * retired_ratio
+                s, f, fs, t, ss_amt, fehb_amt, medicare_amt = prorate_monthly_values(
+                    working_days, retired_days, days_in_month, s, orig_f, orig_fs, orig_t, orig_ss_amt, orig_fehb_amt, orig_medicare_amt
+                )
         
         # Record data
         
@@ -488,3 +538,31 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         )
     
     return df
+
+# --- Unit Test for Tax Calculation ---
+def _test_calculate_federal_tax():
+    # 2024 single filer: 50,000 should be taxed as:
+    # 0-11,600 @10%, 11,600-47,150 @12%, 47,150-50,000 @22%
+    expected = (11600-0)*0.10 + (47150-11600)*0.12 + (50000-47150)*0.22
+    actual = calculate_federal_tax(50000, "single")
+    assert abs(actual - expected) < 1e-2, f"Expected {expected}, got {actual}"
+
+# --- Additional Unit Test for Simulation ---
+def _test_simulate_retirement_basic():
+    """Basic test: Simulation returns non-empty DataFrame and no negative balances."""
+    import datetime as dt
+    birthdate = dt.date(1960, 1, 1)
+    start_date = dt.date(1985, 1, 1)
+    retire_date = dt.date(2025, 1, 1)
+    df = simulate_retirement(
+        birthdate, start_date, retire_date, high3=100000, tsp_start=50000, sick_leave_hours=0,
+        ss_start_age=67, survivor_option="None", cola=0.02, tsp_growth=0.05, tsp_withdraw=0.04,
+        pa_resident=True, fehb_premium=200, filing_status="single", sim_years=5
+    )
+    assert not df.empty, "Simulation output should not be empty."
+    assert (df["TSP_Balance"] >= 0).all(), "TSP balance should never be negative."
+    assert (df["Social_Security"] >= 0).all(), "Social Security should never be negative."
+
+if __name__ == "__main__":
+    _test_calculate_federal_tax()
+    _test_simulate_retirement_basic()

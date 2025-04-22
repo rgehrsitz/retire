@@ -10,30 +10,36 @@ def run_monte_carlo_simulation(
     tsp_withdraw, pa_resident, fehb_premium, filing_status="single",
     num_simulations=100, sim_years=25, bi_weekly_tsp_contribution=0, 
     matching_contribution=True, include_medicare=True, fehb_growth_rate=0.05,
-    tsp_fund_allocation=None, use_fund_allocation=False
+    tsp_fund_allocation=None, use_fund_allocation=False,
+    cola_dist='normal', tsp_growth_dist='normal', random_seed=None,
+    scenario_label=None, tsp_depletion_threshold=1000, track_tsp=True, return_full_paths=False
 ):
     """
-    Run Monte Carlo simulation for retirement planning
-    
-    Parameters:
-    - All the standard parameters for simulate_retirement
-    - cola_mean: Mean annual COLA percentage (e.g., 0.02 for 2%)
-    - cola_std: Standard deviation for COLA (e.g., 0.005 for 0.5%)
-    - tsp_growth_mean: Mean annual TSP growth rate (e.g., 0.05 for 5%)
-    - tsp_growth_std: Standard deviation for TSP growth (e.g., 0.10 for 10%)
-    - num_simulations: Number of simulation runs (default: 100)
-    - sim_years: Number of years to simulate after retirement (default: 25)
-    - bi_weekly_tsp_contribution: Biweekly TSP contribution amount
-    - matching_contribution: Whether to include agency matching (5%)
-    - include_medicare: Whether to include Medicare premiums at age 65
-    - fehb_growth_rate: Annual growth rate for FEHB premiums
-    - tsp_fund_allocation: Dictionary with fund allocation percentages
-    - use_fund_allocation: Whether to use fund allocation instead of overall growth rate
-    
-    Returns:
-    - DataFrame with retirement dates as index and percentile columns for each month
+    Run Monte Carlo simulation for retirement planning (enhanced version).
+    - Vectorized year-by-year sampling for COLA and TSP growth.
+    - Parallel execution for speed.
+    - User-defined distributions (normal, lognormal, or custom callable).
+    - Tracks TSP balances and depletion risk.
+    - Robust error handling and reproducibility (random_seed).
+    - Scenario labeling for traceability.
+    - Returns: (df_results, metrics_dict)
     """
-    # Initialize DataFrame to store results
+    import concurrent.futures
+    import traceback
+    rng = np.random.default_rng(random_seed)
+
+    def sample_dist(dist, mean, std, shape):
+        if callable(dist):
+            return dist(mean, std, shape)
+        if dist == 'normal':
+            return rng.normal(mean, std, shape)
+        if dist == 'lognormal':
+            sigma2 = np.log(1 + (std/mean)**2)
+            mu = np.log(mean) - 0.5*sigma2
+            return rng.lognormal(mu, np.sqrt(sigma2), shape)
+        raise ValueError(f"Unknown distribution: {dist}")
+
+    # Get dates index from a single baseline simulation (must be before n_months)
     first_sim = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
@@ -45,52 +51,93 @@ def run_monte_carlo_simulation(
         tsp_fund_allocation=tsp_fund_allocation,
         use_fund_allocation=use_fund_allocation
     )
-    
-    # Create dates index
     dates = first_sim["Date"]
-    
-    # Initialize results matrix
-    results = np.zeros((len(dates), num_simulations))
-    
-    # Run simulations
-    for i in range(num_simulations):
-        # Sample growth and COLA rates from normal distributions
-        cola = np.random.normal(cola_mean, cola_std)
-        cola = max(0, cola)  # Ensure non-negative COLA
-        
-        tsp_growth = np.random.normal(tsp_growth_mean, tsp_growth_std)
-        
-        # Run simulation with sampled parameters
-        sim_df = simulate_retirement(
-            birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
-            ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw,
-            pa_resident, fehb_premium, filing_status, sim_years,
-            bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
-            matching_contribution=matching_contribution,
-            include_medicare=include_medicare,
-            fehb_growth_rate=fehb_growth_rate,
-            tsp_fund_allocation=tsp_fund_allocation,
-            use_fund_allocation=use_fund_allocation
-        )
-        
-        # Store total income in results matrix
-        results[:, i] = sim_df["Total_Income"]
-    
-    # Calculate percentiles
+    n_months = len(dates)
+
+    cola_samples = sample_dist(cola_dist, cola_mean, cola_std, (num_simulations, sim_years))
+    tsp_growth_samples = sample_dist(tsp_growth_dist, tsp_growth_mean, tsp_growth_std, (num_simulations, sim_years))
+
+    income_results = np.zeros((n_months, num_simulations))
+    tsp_results = np.zeros((n_months, num_simulations)) if track_tsp else None
+    depletion_flags = np.zeros(num_simulations, dtype=bool)
+    error_log = []
+
+    def run_single_sim(i):
+        try:
+            cola_path = np.repeat(cola_samples[i], 12)[:n_months]
+            tsp_growth_path = np.repeat(tsp_growth_samples[i], 12)[:n_months]
+            sim_df = simulate_retirement(
+                birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+                ss_start_age, survivor_option, cola_path, tsp_growth_path, tsp_withdraw,
+                pa_resident, fehb_premium, filing_status, sim_years,
+                bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+                matching_contribution=matching_contribution,
+                include_medicare=include_medicare,
+                fehb_growth_rate=fehb_growth_rate,
+                tsp_fund_allocation=tsp_fund_allocation,
+                use_fund_allocation=use_fund_allocation,
+                scenario_label=scenario_label
+            )
+            income = sim_df["Total_Income"].to_numpy()
+            if track_tsp:
+                tsp_bal = sim_df["TSP_Balance"].to_numpy()
+                if (tsp_bal < tsp_depletion_threshold).any():
+                    depletion_flags[i] = True
+                return income, tsp_bal, None
+            else:
+                return income, None, None
+        except Exception as e:
+            tb = traceback.format_exc()
+            return None, None, f"Simulation {i} failed: {e}\n{tb}"
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(run_single_sim, i) for i in range(num_simulations)]
+        for i, fut in enumerate(concurrent.futures.as_completed(futures)):
+            income, tsp_bal, err = fut.result()
+            if err:
+                error_log.append(err)
+                continue
+            income_results[:, i] = income
+            if track_tsp:
+                tsp_results[:, i] = tsp_bal
+
     percentiles = [5, 10, 25, 50, 75, 90, 95]
-    percentile_columns = {f"p{p}": [] for p in percentiles}
-    
-    for row_idx in range(results.shape[0]):
-        row_data = results[row_idx, :]
-        for p in percentiles:
-            percentile_columns[f"p{p}"].append(np.percentile(row_data, p))
-    
-    # Create DataFrame with results
+    percentile_columns = {f"p{p}": np.percentile(income_results, p, axis=1) for p in percentiles}
+    tsp_percentile_columns = {f"tsp_p{p}": np.percentile(tsp_results, p, axis=1) for p in percentiles} if track_tsp else {}
+
+    # Get dates index from a single baseline simulation
+    first_sim = simulate_retirement(
+        birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
+        ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
+        pa_resident, fehb_premium, filing_status, sim_years,
+        bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
+        matching_contribution=matching_contribution,
+        include_medicare=include_medicare,
+        fehb_growth_rate=fehb_growth_rate,
+        tsp_fund_allocation=tsp_fund_allocation,
+        use_fund_allocation=use_fund_allocation
+    )
+    dates = first_sim["Date"]
+
     df_results = pd.DataFrame(index=dates)
     for col, values in percentile_columns.items():
         df_results[col] = values
-    
-    return df_results
+    for col, values in tsp_percentile_columns.items():
+        df_results[col] = values
+
+    metrics = {
+        "tsp_depletion_risk": depletion_flags.mean() * 100 if track_tsp else None,
+        "error_log": error_log,
+        "scenario_label": scenario_label,
+        "random_seed": random_seed,
+        "max_drawdown": float(np.min(percentile_columns["p5"])),
+        "volatility": float(np.std(percentile_columns["p50"]))
+    }
+    if return_full_paths:
+        metrics["all_income_paths"] = income_results
+        if track_tsp:
+            metrics["all_tsp_paths"] = tsp_results
+    return df_results, metrics
 
 def generate_scenario_summary(mc_results, retirement_date, social_security_date):
     """Generate a summary of Monte Carlo simulation results"""
