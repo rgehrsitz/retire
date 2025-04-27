@@ -13,7 +13,8 @@ def run_monte_carlo_simulation(
     tsp_fund_allocation=None, use_fund_allocation=False,
     cola_dist='normal', tsp_growth_dist='normal', random_seed=None,
     scenario_label=None, tsp_depletion_threshold=1000, track_tsp=True, return_full_paths=False,
-    withdrawal_strategy="Greater of Both"
+    withdrawal_strategy="Greater of Both",
+    oasdi_rate=6.2, fers_rate=4.4, medicare_rate=1.45, fegli=0.0, other_deductions=0.0
 ):
     """
     Run Monte Carlo simulation for retirement planning (enhanced version).
@@ -81,7 +82,9 @@ def run_monte_carlo_simulation(
                 include_medicare=include_medicare,
                 fehb_growth_rate=fehb_growth_rate,
                 tsp_fund_allocation=tsp_fund_allocation,
-                use_fund_allocation=use_fund_allocation
+                use_fund_allocation=use_fund_allocation,
+                oasdi_rate=oasdi_rate, fers_rate=fers_rate, medicare_rate=medicare_rate,
+                fegli=fegli, other_deductions=other_deductions
             )
             income = sim_df["Total_Income"].to_numpy()
             if track_tsp:

@@ -237,11 +237,25 @@ def prorate_monthly_values(working_days, retired_days, days_in_month, working_sa
 # --- Main Simulation Function ---
 def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
                        ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
-                       withdrawal_strategy="Greater of Both", # NEW ARGUMENT
+                       withdrawal_strategy="Greater of Both",
                        pa_resident=None, fehb_premium=None, filing_status="single", sim_years=25,
                        bi_weekly_tsp_contribution=0, matching_contribution=True, include_medicare=True,
                        fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False,
-                       current_salary=None):
+                       current_salary=None,
+                       oasdi_rate=6.2, fers_rate=4.4, medicare_rate=1.45, fegli=0.0, other_deductions=0.0):
+    """
+    Simulate retirement income streams on a monthly basis.
+    Returns a DataFrame with results.
+    Raises ValueError if input validation fails.
+    
+    Parameters:
+        ... (see previous docstring)
+        oasdi_rate (float): OASDI (Social Security) deduction rate (% of salary, default 6.2)
+        fers_rate (float): FERS deduction rate (% of salary, default 4.4)
+        medicare_rate (float): Medicare deduction rate (% of salary, default 1.45)
+        fegli (float): FEGLI life insurance deduction ($/mo, default 0)
+        other_deductions (float): Other mandatory deductions ($/mo, default 0)
+    """
     """
     Simulate retirement income streams on a monthly basis.
     Returns a DataFrame with results.
@@ -275,6 +289,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     total = []
     tsp_balance_history = []
     rmd_amounts = []
+    discretionary_income_list = []  # Track monthly discretionary income
     
     # Convert sick leave hours to months for service credit
     sick_leave_months = sick_leave_hours / 174  # 174 hours = 1 month of service credit
@@ -359,14 +374,27 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             annual_salary = high3
             federal_tax = calculate_federal_tax(annual_salary, filing_status) / 12
             effective_fed_rate = federal_tax / (monthly_gross_salary)
-            
+
+            # Mandatory deductions
+            oasdi_amt = monthly_gross_salary * (oasdi_rate / 100)
+            fers_amt = monthly_gross_salary * (fers_rate / 100)
+            medicare_amt = monthly_gross_salary * (medicare_rate / 100)
+            fegli_amt = fegli  # already monthly
+            other_ded_amt = other_deductions  # already monthly
+
+            # FEHB premium
+            fehb_amt = fehb_premium if fehb_premium else 0
+
+            # Net (discretionary) income calculation
+            total_deductions = (federal_tax + oasdi_amt + fers_amt + medicare_amt + fegli_amt + other_ded_amt + fehb_amt + (monthly_gross_salary * state_tax))
+            discretionary_income = monthly_gross_salary - total_deductions
+
             s = monthly_gross_salary * (1 - effective_fed_rate - state_tax)
             f = 0
             fs = 0
             t = 0
             ss_amt = 0
-            fehb_amt = 0
-            medicare_amt = 0
+            # fehb_amt, medicare_amt already set above
             
             # TSP contribution and growth during working years
             if bi_weekly_tsp_contribution > 0:
@@ -541,6 +569,30 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             fehb_amt_retired = -current_fehb_premium
             medicare_amt_retired = -(MEDICARE_PART_B_PREMIUM + MEDICARE_PART_D_PREMIUM) if include_medicare and calculate_age(birthdate, date) >= 65 else 0
 
+            # FEGLI and Other deductions
+            fegli_amt = fegli
+            other_ded_amt = other_deductions
+
+            # State tax (applies to annuity and TSP, not FERS supplement or SS for PA)
+            state_tax_ann = calculate_state_tax(pa_resident, monthly_annuity)
+            state_tax_tsp = calculate_state_tax(pa_resident, tsp_draw_retired)
+
+            # Discretionary income (net of all post-retirement deductions)
+            discretionary_income = (
+                monthly_annuity
+                + fers_supp_retired
+                + tsp_draw_retired
+                + ss_amt_retired
+                - federal_tax_ann
+                - state_tax_ann
+                - state_tax_tsp
+                - fehb_amt_retired
+                - medicare_amt_retired
+                - fegli_amt
+                - other_ded_amt
+            )
+            discretionary_income_list.append(discretionary_income)
+
             # Prorate all values
             s = salary_working * working_ratio
             f = fers_retired * retired_ratio
@@ -609,6 +661,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             df.loc[fix_mask, "Medicare"]
         )
     
+    df["Discretionary_Income"] = pd.Series(discretionary_income_list + [None]*(len(df)-len(discretionary_income_list)))
     return df
 
 # --- Unit Test for Tax Calculation ---

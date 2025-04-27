@@ -331,7 +331,12 @@ with tab3:
                 cola_std=cola_std,
                 tsp_growth_mean=tsp_growth_mean,
                 tsp_growth_std=tsp_growth_std,
-                num_simulations=num_simulations
+                num_simulations=num_simulations,
+                oasdi_rate=mc_scenario.get('oasdi_rate', 6.2),
+                fers_rate=mc_scenario.get('fers_rate', 4.4),
+                medicare_rate=mc_scenario.get('medicare_rate', 1.45),
+                fegli=mc_scenario.get('fegli', 0.0),
+                other_deductions=mc_scenario.get('other_deductions', 0.0)
             )
             clean_results = mc_results.dropna(axis=0, how='any')
             try:

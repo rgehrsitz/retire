@@ -131,6 +131,38 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"tsp_balance_{scenario_letter.lower()}"
     )
     
+    # --- Mandatory Deductions ---
+    st.subheader("Mandatory Deductions (Pre-Retirement)")
+    col_ded1, col_ded2, col_ded3 = st.columns(3)
+    with col_ded1:
+        oasdi_rate = st.number_input(
+            "OASDI (Social Security) Rate (%)",
+            min_value=0.0, max_value=7.0, value=6.2, step=0.1,
+            key=f'oasdi_{scenario_letter.lower()}'
+        )
+        fers_rate = st.number_input(
+            "FERS Contribution Rate (%)",
+            min_value=0.0, max_value=5.0, value=4.4, step=0.1,
+            key=f'fers_{scenario_letter.lower()}'
+        )
+    with col_ded2:
+        medicare_rate = st.number_input(
+            "Medicare Rate (%)",
+            min_value=0.0, max_value=2.0, value=1.45, step=0.01,
+            key=f'medicare_{scenario_letter.lower()}'
+        )
+        fegli = st.number_input(
+            "FEGLI (Life Insurance) ($/mo)",
+            min_value=0.0, value=0.0, step=5.0,
+            key=f'fegli_{scenario_letter.lower()}'
+        )
+    with col_ded3:
+        other_deductions = st.number_input(
+            "Other Mandatory Deductions ($/mo)",
+            min_value=0.0, value=0.0, step=10.0,
+            key=f'otherded_{scenario_letter.lower()}'
+        )
+
     # Add TSP contribution fields
     st.subheader("TSP Contributions")
     
@@ -392,7 +424,7 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
     include_medicare = st.checkbox(
         "Include Medicare premiums at age 65", 
         value=st.session_state.get(session_key, {}).get('include_medicare', True),
-        key=f"medicare_{scenario_letter.lower()}"
+        key=f"include_medicare_{scenario_letter.lower()}"
     )
     
     # Scenario notes
@@ -428,7 +460,13 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
             'notes': scenario_notes,
             'bi_weekly_tsp_contribution': bi_weekly_tsp_contribution,
             'matching_contribution': matching_contribution,
-            'include_medicare': include_medicare
+            'include_medicare': include_medicare,
+            # New deduction fields
+            'oasdi_rate': oasdi_rate,
+            'fers_rate': fers_rate,
+            'medicare_rate': medicare_rate,
+            'fegli': fegli,
+            'other_deductions': other_deductions
         }
         
         # Save to file
@@ -461,7 +499,13 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         "filing_status": filing_status,
         "bi_weekly_tsp_contribution": bi_weekly_tsp_contribution,
         "matching_contribution": matching_contribution,
-        "include_medicare": include_medicare
+        "include_medicare": include_medicare,
+        # Pass deduction fields to simulation
+        "oasdi_rate": oasdi_rate,
+        "fers_rate": fers_rate,
+        "medicare_rate": medicare_rate,
+        "fegli": fegli,
+        "other_deductions": other_deductions
     }
 
 def render_export_options(df_a, df_b, to_excel_func):
