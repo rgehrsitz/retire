@@ -310,6 +310,14 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         key=f"social_security_age_{scenario_letter.lower()}"
     )
     
+    # Withdrawal Strategy
+    withdrawal_strategy = st.radio(
+        "TSP Withdrawal Strategy",
+        options=["Fixed Percentage", "IRS RMD", "Greater of Both"],
+        index=2 if st.session_state.get(session_key, {}).get('withdrawal_strategy', 'Greater of Both') == 'Greater of Both' else (0 if st.session_state.get(session_key, {}).get('withdrawal_strategy', 'Greater of Both') == 'Fixed Percentage' else 1),
+        key=f"withdrawal_strategy_{scenario_letter.lower()}"
+    )
+
     # Additional Options
     survivor_option = st.selectbox(
         "Survivor Benefit Option", 
@@ -416,6 +424,7 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
             'cola': cola,
             'tsp_growth': tsp_growth,
             'tsp_withdraw': tsp_withdraw,
+            'withdrawal_strategy': withdrawal_strategy,
             'notes': scenario_notes,
             'bi_weekly_tsp_contribution': bi_weekly_tsp_contribution,
             'matching_contribution': matching_contribution,
@@ -445,6 +454,7 @@ def render_scenario_inputs(scenario_letter, session_key, DEFAULT_COLA, DEFAULT_T
         "cola": cola,
         "tsp_growth": tsp_growth,
         "tsp_withdraw": tsp_withdraw,
+        "withdrawal_strategy": withdrawal_strategy,
         "pa_resident": pa_resident,
         "fehb_premium": fehb_premium,
         "fehb_growth_rate": fehb_growth_rate,

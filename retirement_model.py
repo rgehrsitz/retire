@@ -170,9 +170,15 @@ def validate_inputs(birthdate, start_date, retire_date, high3, tsp_start, sick_l
         errors.append("Sick leave hours cannot be negative.")
     if not isinstance(ss_start_age, int) or ss_start_age < 62 or ss_start_age > 70:
         errors.append("Social Security start age should be between 62 and 70.")
-    if not isinstance(cola, (int, float)) or cola < 0:
+    import numpy as np
+    def is_negative(val):
+        if isinstance(val, (int, float)):
+            return val < 0
+        arr = np.array(val)
+        return np.any(arr < 0)
+    if is_negative(cola):
         errors.append("COLA cannot be negative.")
-    if not isinstance(tsp_growth, (int, float)) or tsp_growth < 0:
+    if is_negative(tsp_growth):
         errors.append("TSP growth cannot be negative.")
     if not isinstance(tsp_withdraw, (int, float)) or tsp_withdraw < 0:
         errors.append("TSP withdrawal rate cannot be negative.")
@@ -231,7 +237,8 @@ def prorate_monthly_values(working_days, retired_days, days_in_month, working_sa
 # --- Main Simulation Function ---
 def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
                        ss_start_age, survivor_option, cola, tsp_growth, tsp_withdraw, 
-                       pa_resident, fehb_premium, filing_status="single", sim_years=25,
+                       withdrawal_strategy="Greater of Both", # NEW ARGUMENT
+                       pa_resident=None, fehb_premium=None, filing_status="single", sim_years=25,
                        bi_weekly_tsp_contribution=0, matching_contribution=True, include_medicare=True,
                        fehb_growth_rate=0.05, tsp_fund_allocation=None, use_fund_allocation=False,
                        current_salary=None):
@@ -313,10 +320,29 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
     
     # Run simulation from start to end date (monthly)
     date = sim_start
+    # --- Handle COLA and TSP growth as arrays or scalars ---
+    import numpy as np
+    cola_is_array = isinstance(cola, (list, np.ndarray))
+    tsp_growth_is_array = isinstance(tsp_growth, (list, np.ndarray))
+    month_idx = 0
+
     while date <= sim_end_date:
+        # Select cola and tsp_growth for this month
+        # Use last value if index exceeds array length
+        if cola_is_array:
+            cola_this_month = cola[month_idx] if month_idx < len(cola) else cola[-1]
+        else:
+            cola_this_month = cola
+        if tsp_growth_is_array:
+            tsp_growth_this_month = tsp_growth[month_idx] if month_idx < len(tsp_growth) else tsp_growth[-1]
+        else:
+            tsp_growth_this_month = tsp_growth
+
         # Skip past dates if we're simulating from current year
         if date < today and sim_start.year == today.year:
             date += relativedelta(months=1)
+            if cola_is_array or tsp_growth_is_array:
+                month_idx += 1
             continue
             
         # Calculate current age for RMD purposes
@@ -355,10 +381,10 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
                 monthly_contribution = total_biweekly * 26 / 12
                 
                 # Apply to TSP balance
-                tsp_balance = tsp_balance * (1 + tsp_growth / 12) + monthly_contribution
+                tsp_balance = tsp_balance * (1 + tsp_growth_this_month / 12) + monthly_contribution
             else:
                 # No contributions, just growth
-                tsp_balance = tsp_balance * (1 + tsp_growth / 12)
+                tsp_balance = tsp_balance * (1 + tsp_growth_this_month / 12)
             
             # Initialize rmd_amount to 0 during working years
             rmd_amount = 0
@@ -369,7 +395,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             
             # FERS annuity with COLA
             years_retired = (date.year - retire_date.year) + (date.month - retire_date.month) / 12
-            monthly_annuity = apply_cola(gross_annuity / 12, cola, years_retired)
+            monthly_annuity = apply_cola(gross_annuity / 12, cola_this_month, years_retired)
             
             # Progressive tax on annuity
             annual_annuity = monthly_annuity * 12
@@ -386,7 +412,13 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             
             # Check for RMD requirements
             rmd_amount = calculate_rmd(current_age, tsp_balance)
-            withdrawal_rate = max(tsp_withdraw / 12, rmd_amount / tsp_balance if tsp_balance > 0 else 0)
+            # --- Withdrawal strategy logic ---
+            if withdrawal_strategy == "Fixed Percentage":
+                withdrawal_rate = tsp_withdraw / 12
+            elif withdrawal_strategy == "IRS RMD":
+                withdrawal_rate = (rmd_amount / tsp_balance) if tsp_balance > 0 else 0
+            else: # "Greater of Both"
+                withdrawal_rate = max(tsp_withdraw / 12, rmd_amount / tsp_balance if tsp_balance > 0 else 0)
             
             # TSP withdrawals and growth
             tsp_draw = tsp_balance * withdrawal_rate if tsp_balance > 0 else 0
@@ -397,7 +429,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             effective_tsp_rate = tsp_federal_tax / tsp_draw if tsp_draw > 0 else 0
             
             t = tsp_draw * (1 - effective_tsp_rate)
-            tsp_balance = (tsp_balance - tsp_draw) * (1 + tsp_growth / 12)
+            tsp_balance = (tsp_balance - tsp_draw) * (1 + tsp_growth_this_month / 12)
             
             # Prevent negative TSP balance
             if tsp_balance < 0:
@@ -406,7 +438,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             # Social Security
             if date >= ss_start_date:
                 years_on_ss = (date.year - ss_start_date.year) + (date.month - ss_start_date.month) / 12
-                monthly_ss = apply_cola(ss_benefit, cola, years_on_ss)
+                monthly_ss = apply_cola(ss_benefit, cola_this_month, years_on_ss)
                 
                 # 85% of SS may be taxable depending on income
                 # Simplified calculation
@@ -500,6 +532,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         
         # Advance to next month
         date += relativedelta(months=1)
+        if cola_is_array or tsp_growth_is_array:
+            month_idx += 1
     
     # Create DataFrame
     df = pd.DataFrame({

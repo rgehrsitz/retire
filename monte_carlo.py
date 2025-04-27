@@ -12,7 +12,8 @@ def run_monte_carlo_simulation(
     matching_contribution=True, include_medicare=True, fehb_growth_rate=0.05,
     tsp_fund_allocation=None, use_fund_allocation=False,
     cola_dist='normal', tsp_growth_dist='normal', random_seed=None,
-    scenario_label=None, tsp_depletion_threshold=1000, track_tsp=True, return_full_paths=False
+    scenario_label=None, tsp_depletion_threshold=1000, track_tsp=True, return_full_paths=False,
+    withdrawal_strategy="Greater of Both"
 ):
     """
     Run Monte Carlo simulation for retirement planning (enhanced version).
@@ -43,7 +44,8 @@ def run_monte_carlo_simulation(
     first_sim = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status, sim_years,
+        withdrawal_strategy=withdrawal_strategy,
+        pa_resident=pa_resident, fehb_premium=fehb_premium, filing_status=filing_status, sim_years=sim_years,
         bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
         matching_contribution=matching_contribution,
         include_medicare=include_medicare,
@@ -54,8 +56,11 @@ def run_monte_carlo_simulation(
     dates = first_sim["Date"]
     n_months = len(dates)
 
-    cola_samples = sample_dist(cola_dist, cola_mean, cola_std, (num_simulations, sim_years))
-    tsp_growth_samples = sample_dist(tsp_growth_dist, tsp_growth_mean, tsp_growth_std, (num_simulations, sim_years))
+    cola_samples = sample_dist(cola_dist, cola_mean, cola_std, (num_simulations, n_months))
+    tsp_growth_samples = sample_dist(tsp_growth_dist, tsp_growth_mean, tsp_growth_std, (num_simulations, n_months))
+    # Ensure no negative COLA or TSP growth values
+    cola_samples = np.clip(cola_samples, 0, None)
+    tsp_growth_samples = np.clip(tsp_growth_samples, 0, None)
 
     income_results = np.zeros((n_months, num_simulations))
     tsp_results = np.zeros((n_months, num_simulations)) if track_tsp else None
@@ -64,19 +69,19 @@ def run_monte_carlo_simulation(
 
     def run_single_sim(i):
         try:
-            cola_path = np.repeat(cola_samples[i], 12)[:n_months]
-            tsp_growth_path = np.repeat(tsp_growth_samples[i], 12)[:n_months]
+            cola_path = cola_samples[i, :n_months]
+            tsp_growth_path = tsp_growth_samples[i, :n_months]
             sim_df = simulate_retirement(
                 birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
                 ss_start_age, survivor_option, cola_path, tsp_growth_path, tsp_withdraw,
-                pa_resident, fehb_premium, filing_status, sim_years,
+                withdrawal_strategy=withdrawal_strategy,
+                pa_resident=pa_resident, fehb_premium=fehb_premium, filing_status=filing_status, sim_years=sim_years,
                 bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
                 matching_contribution=matching_contribution,
                 include_medicare=include_medicare,
                 fehb_growth_rate=fehb_growth_rate,
                 tsp_fund_allocation=tsp_fund_allocation,
-                use_fund_allocation=use_fund_allocation,
-                scenario_label=scenario_label
+                use_fund_allocation=use_fund_allocation
             )
             income = sim_df["Total_Income"].to_numpy()
             if track_tsp:
@@ -109,7 +114,8 @@ def run_monte_carlo_simulation(
     first_sim = simulate_retirement(
         birthdate, start_date, retire_date, high3, tsp_start, sick_leave_hours,
         ss_start_age, survivor_option, cola_mean, tsp_growth_mean, tsp_withdraw,
-        pa_resident, fehb_premium, filing_status, sim_years,
+        withdrawal_strategy=withdrawal_strategy,
+        pa_resident=pa_resident, fehb_premium=fehb_premium, filing_status=filing_status, sim_years=sim_years,
         bi_weekly_tsp_contribution=bi_weekly_tsp_contribution,
         matching_contribution=matching_contribution,
         include_medicare=include_medicare,
