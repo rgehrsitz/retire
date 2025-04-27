@@ -473,44 +473,82 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             else:
                 medicare_amt = 0
         
-        # Special handling for mid-year retirement
-        if date.year == retire_date.year:
-            if date.month == retirement_month:
-                # Retirement month - prorate based on day of month
-                days_in_month = (dt.date(date.year, date.month, 28) + relativedelta(days=4)).day
-                working_days = retire_date.day - 1
-                retired_days = days_in_month - working_days
-                
-                # Blend working and retired values
-                working_ratio = working_days / days_in_month
-                retired_ratio = retired_days / days_in_month
-                
-                # Calculate working part of month
-                monthly_gross_salary = high3 / 12
-                annual_salary = high3
-                federal_tax = calculate_federal_tax(annual_salary, filing_status) / 12
-                effective_fed_rate = federal_tax / monthly_gross_salary
-                
-                s = monthly_gross_salary * (1 - effective_fed_rate - state_tax)
-                f = 0
-                fs = 0
-                t = 0
-                ss_amt = 0
-                fehb_amt = 0
-                medicare_amt = 0
-                
-                # Store original values for retirement portion calculations
-                orig_f = f
-                orig_fs = fs
-                orig_t = t
-                orig_ss_amt = ss_amt
-                orig_fehb_amt = fehb_amt
-                orig_medicare_amt = medicare_amt
-                
-                # Reset all values to avoid double-counting
-                s, f, fs, t, ss_amt, fehb_amt, medicare_amt = prorate_monthly_values(
-                    working_days, retired_days, days_in_month, s, orig_f, orig_fs, orig_t, orig_ss_amt, orig_fehb_amt, orig_medicare_amt
-                )
+        # Robust proration for the retirement month
+        import calendar
+        if date.year == retire_date.year and date.month == retire_date.month:
+            days_in_month = calendar.monthrange(date.year, date.month)[1]
+            working_days = retire_date.day - 1
+            retired_days = days_in_month - working_days
+            working_ratio = working_days / days_in_month
+            retired_ratio = retired_days / days_in_month
+
+            # Calculate working portion
+            monthly_gross_salary = high3 / 12
+            annual_salary = high3
+            federal_tax = calculate_federal_tax(annual_salary, filing_status) / 12
+            effective_fed_rate = federal_tax / monthly_gross_salary
+            salary_working = monthly_gross_salary * (1 - effective_fed_rate - state_tax)
+
+            # Calculate retired portion
+            years_retired = 0  # Just started
+            monthly_annuity = apply_cola(gross_annuity / 12, cola_this_month, years_retired)
+            annual_annuity = monthly_annuity * 12
+            federal_tax_ann = calculate_federal_tax(annual_annuity, filing_status) / 12
+            effective_fed_rate_ann = federal_tax_ann / monthly_annuity if monthly_annuity > 0 else 0
+            fers_retired = monthly_annuity * (1 - effective_fed_rate_ann)
+
+            # FERS Supplement (if under 62)
+            if date < age_62 and service_years >= 20:
+                fers_supp_retired = calculate_fers_supplement(service_years, ss_benefit_age_62) * (1 - effective_fed_rate_ann)
+            else:
+                fers_supp_retired = 0
+
+            # TSP withdrawal (use standard logic for retired portion)
+            rmd_amount = calculate_rmd(calculate_age(birthdate, date), tsp_balance)
+            if withdrawal_strategy == "Fixed Percentage":
+                withdrawal_rate = tsp_withdraw / 12
+            elif withdrawal_strategy == "IRS RMD":
+                withdrawal_rate = (rmd_amount / tsp_balance) if tsp_balance > 0 else 0
+            else: # "Greater of Both"
+                withdrawal_rate = max(tsp_withdraw / 12, rmd_amount / tsp_balance if tsp_balance > 0 else 0)
+            tsp_draw_retired = tsp_balance * withdrawal_rate if tsp_balance > 0 else 0
+            annual_tsp = tsp_draw_retired * 12
+            tsp_federal_tax = calculate_federal_tax(annual_tsp, filing_status) / 12
+            effective_tsp_rate = tsp_federal_tax / tsp_draw_retired if tsp_draw_retired > 0 else 0
+            tsp_retired = tsp_draw_retired * (1 - effective_tsp_rate)
+
+            # Social Security (if eligible)
+            if date >= ss_start_date:
+                years_on_ss = (date.year - ss_start_date.year) + (date.month - ss_start_date.month) / 12
+                monthly_ss = apply_cola(ss_benefit, cola_this_month, years_on_ss)
+                total_monthly_income = monthly_annuity + tsp_draw_retired + monthly_ss
+                if total_monthly_income > 5000:
+                    ss_taxable_portion = 0.85
+                elif total_monthly_income > 3000:
+                    ss_taxable_portion = 0.50
+                else:
+                    ss_taxable_portion = 0
+                ss_taxable = monthly_ss * ss_taxable_portion
+                ss_tax = ss_taxable * effective_fed_rate_ann
+                ss_amt_retired = monthly_ss - ss_tax
+            else:
+                ss_amt_retired = 0
+
+            # FEHB and Medicare (retired portion)
+            years_in_retirement = 0
+            fehb_growth_factor = (1 + fehb_growth_rate) ** int(years_in_retirement)
+            current_fehb_premium = fehb_premium * fehb_growth_factor
+            fehb_amt_retired = -current_fehb_premium
+            medicare_amt_retired = -(MEDICARE_PART_B_PREMIUM + MEDICARE_PART_D_PREMIUM) if include_medicare and calculate_age(birthdate, date) >= 65 else 0
+
+            # Prorate all values
+            s = salary_working * working_ratio
+            f = fers_retired * retired_ratio
+            fs = fers_supp_retired * retired_ratio
+            t = tsp_retired * retired_ratio
+            ss_amt = ss_amt_retired * retired_ratio
+            fehb_amt = fehb_amt_retired * retired_ratio
+            medicare_amt = medicare_amt_retired * retired_ratio
         
         # Record data
         
