@@ -389,7 +389,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             total_deductions = (federal_tax + oasdi_amt + fers_amt + medicare_amt + fegli_amt + other_ded_amt + fehb_amt + (monthly_gross_salary * state_tax))
             discretionary_income = monthly_gross_salary - total_deductions
 
-            s = monthly_gross_salary * (1 - effective_fed_rate - state_tax)
+            s = discretionary_income
             f = 0
             fs = 0
             t = 0
@@ -594,7 +594,7 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
             discretionary_income_list.append(discretionary_income)
 
             # Prorate all values
-            s = salary_working * working_ratio
+            s = discretionary_income * working_ratio
             f = fers_retired * retired_ratio
             fs = fers_supp_retired * retired_ratio
             t = tsp_retired * retired_ratio
@@ -616,7 +616,8 @@ def simulate_retirement(birthdate, start_date, retire_date, high3, tsp_start, si
         salary.append(s)
         fehb.append(fehb_amt)
         medicare.append(medicare_amt)
-        total.append(f + fs + t + ss_amt + s + fehb_amt + medicare_amt)
+        # Total income: use net salary (s) instead of gross
+        total.append(f + fs + t + ss_amt + s)
         tsp_balance_history.append(tsp_balance)
         rmd_amounts.append(rmd_amount)
         
